@@ -149,29 +149,6 @@ csv-tool/
 - ✅ **索引持久化**: 自动保存索引，再次打开速度提升20-40倍 ✨
 - ✅ **跨平台**: 原生支持Windows/Linux/macOS
 
-## 🖥️ GUI 应用
-
-项目现在包含一个现代化的图形界面应用！
-
-### GUI 特性
-- 🎨 现代化 UI 设计（React + Tailwind CSS）
-- ⚡ 高性能（复用 Rust 核心库）
-- 📊 实时搜索过滤
-- 📄 分页浏览
-- 🎯 响应式设计
-
-### 运行 GUI
-
-```bash
-# 1. 安装依赖
-cd frontend && npm install
-
-# 2. 运行开发模式
-cd ../tauri && cargo tauri dev
-```
-
-详细说明请参阅 [README_GUI.md](./README_GUI.md) 和 [QUICKSTART_GUI.md](./QUICKSTART_GUI.md)
-
 ## 📋 开发路线图
 
 ### 已完成 ✅
@@ -184,8 +161,7 @@ cd ../tauri && cargo tauri dev
 - [x] 零拷贝CSV解析
 - [x] 错误处理系统
 - [x] 集成测试
-- [x] **索引持久化**（.csv.idx文件）✨
-- [x] **GUI界面**（Tauri + React）✨ 新增
+- [x] **索引持久化**（.csv.idx文件）✨ 新增
 
 ### 计划中 🚧
 - [ ] 异步索引构建（后台构建）
@@ -193,8 +169,9 @@ cd ../tauri && cargo tauri dev
 - [ ] 性能基准测试（criterion）
 
 ### 未来功能 💡
+- [ ] GUI界面（egui）
 - [ ] 单元格编辑
-- [ ] 高级搜索过滤
+- [ ] 搜索过滤
 - [ ] 数据排序
 - [ ] 导出功能
 - [ ] 并行处理（rayon）

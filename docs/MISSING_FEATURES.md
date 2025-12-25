@@ -4,113 +4,100 @@
 
 基于当前项目状态和README中的路线图，以下是当前缺失的功能清单。
 
+## ✅ 已完成的高优先级功能
+
+### 1. 索引持久化 ✅ 已完成
+
+**当前状态**: ✅ 已实现  
+**完成时间**: 2024
+
+**已实现功能**:
+- ✅ 将构建的行索引保存到 `.csv.idx` 文件
+- ✅ 下次打开相同文件时，如果文件未修改，直接加载索引
+- ✅ 避免每次打开文件都重新构建索引
+- ✅ 索引元数据验证（文件大小、修改时间、版本号）
+- ✅ 优雅降级（索引加载失败自动重建）
+
+**实现的API**:
+```rust
+// 已实现的功能
+pub fn save_to_file(&self, csv_path: &Path, metadata: &IndexMetadata) -> Result<PathBuf>
+pub fn load_from_file(index_path: &Path) -> Result<(RowIndex, IndexMetadata)>
+pub fn is_index_valid(csv_path: &Path, metadata: &IndexMetadata) -> bool
+pub fn index_file_path(csv_path: &Path) -> PathBuf
+```
+
+**测试覆盖**:
+- `test_index_save_and_load` - 索引保存和加载
+- `test_index_invalid_after_file_modification` - 文件修改后索引失效
+- `test_index_metadata` - 元数据功能
+- `test_index_file_path` - 索引文件路径生成
+
+---
+
 ## 🔴 高优先级缺失功能
 
-### 1. 索引持久化 ⚠️ 重要
+### 2. CLI界面优化 ✅ 已完成
 
-**当前状态**: ❌ 未实现  
-**优先级**: 🔴 高  
-**预计工作量**: 2-3天
+**当前状态**: ✅ 已实现  
+**完成时间**: 2024-12-25
 
-**功能描述**:
-- 将构建的行索引保存到 `.csv.idx` 文件
-- 下次打开相同文件时，如果文件未修改，直接加载索引
-- 避免每次打开文件都重新构建索引
+**已实现功能**:
+- ✅ 使用 `clap` 库进行专业参数解析
+- ✅ 支持分隔符、页码、页面大小等选项
+- ✅ 添加 `indicatif` 进度条/加载动画
+- ✅ 子命令支持（info, view）
+- ✅ 美化输出（表格格式、导航提示）
+- ✅ 安静模式和详细模式
 
-**实现要点**:
-```rust
-// 需要实现的功能
-pub fn save_index(&self, index_path: &Path) -> Result<()>
-pub fn load_index(index_path: &Path) -> Result<RowIndex>
-pub fn is_index_valid(csv_path: &Path, index_path: &Path) -> bool
-```
+**命令行接口**:
+```bash
+csv-tool [OPTIONS] <FILE> [COMMAND]
 
-**技术细节**:
-- 使用 `serde` + `bincode` 序列化索引
-- 检查CSV文件的修改时间（mtime）
-- 如果CSV文件被修改，索引失效，需要重新构建
-
-**预期收益**:
-- 打开已索引的文件从2秒降至<100ms
-- 提升用户体验，特别是重复打开同一文件
-
----
-
-### 2. CLI界面优化 ⚠️ 重要
-
-**当前状态**: ❌ 基础实现，功能有限  
-**优先级**: 🔴 高  
-**预计工作量**: 3-5天
-
-**当前问题**:
-- 命令行参数解析简单（使用 `env::args()`）
-- 缺少参数验证和帮助信息
-- 不支持可选参数（分隔符、编码等）
-- 没有进度条显示
-
-**需要实现的功能**:
-```rust
-// 使用 clap 改进命令行接口
-csv-tool [OPTIONS] <FILE> [PAGE]
+Commands:
+  info  显示文件详细信息
+  view  查看CSV数据（默认行为）
 
 Options:
-  -d, --delimiter <CHAR>    分隔符（默认: ,）
-  -e, --encoding <ENCODING>  文件编码（默认: UTF-8）
-  -h, --no-headers          无表头
-  -p, --page-size <SIZE>    每页行数（默认: 20）
-  -i, --index-granularity   索引粒度（默认: 1000）
-  --show-stats              显示统计信息
-  --version                 显示版本信息
-  --help                    显示帮助信息
+  -d, --delimiter <CHAR>    分隔符 [default: ,]
+  -p, --page <PAGE>         页码 [default: 1]
+  -s, --page-size <SIZE>    每页行数 [default: 20]
+  -n, --no-headers          文件无表头
+  -g, --granularity <N>     索引粒度 [default: 1000]
+  -q, --quiet               安静模式
+  -v, --verbose             详细模式
+      --rebuild-index       强制重建索引
+  -h, --help                显示帮助
+  -V, --version             显示版本
 ```
-
-**实现要点**:
-- 集成 `clap` 库进行参数解析
-- 添加参数验证和错误提示
-- 支持配置文件（可选）
-- 添加进度条（使用 `indicatif`）
-
-**预期收益**:
-- 更友好的用户体验
-- 支持更多使用场景
-- 更好的错误提示
 
 ---
 
-### 3. CSV写入功能 ❌ 缺失
+### 3. CSV写入功能 ✅ 已完成
 
-**当前状态**: ❌ 完全未实现  
-**优先级**: 🔴 高（如果要做编辑器）  
-**预计工作量**: 5-7天
+**当前状态**: ✅ 已实现  
+**完成时间**: 2024-12-25
 
-**功能描述**:
-- 支持修改CSV单元格
-- 支持添加/删除行
-- 支持添加/删除列
-- 支持保存修改
+**已实现功能**:
+- ✅ 修改CSV单元格
+- ✅ 添加/删除行
+- ✅ 添加/删除列
+- ✅ 重命名列
+- ✅ 保存修改（新文件或覆盖）
+- ✅ 创建新CSV文件
+- ✅ 流式写入（支持大文件）
 
-**实现挑战**:
-- 内存映射文件是只读的，修改需要特殊处理
-- 大文件修改需要流式写入
-- 需要处理索引更新
-
-**实现方案**:
-```rust
-pub struct CsvWriter {
-    // 方案1: 使用临时文件
-    // 方案2: 使用内存缓冲区（小文件）
-    // 方案3: 流式写入（大文件）
-}
-
-pub fn edit_cell(&mut self, row: usize, col: usize, value: &str) -> Result<()>
-pub fn add_row(&mut self, row: Vec<String>) -> Result<()>
-pub fn delete_row(&mut self, row: usize) -> Result<()>
-pub fn save(&self, path: &Path) -> Result<()>
+**CLI命令**:
+```bash
+csv-tool data.csv edit cell -r 1 -c name -v "新值"      # 修改单元格
+csv-tool data.csv edit delete-row -r "1,3"              # 删除行
+csv-tool data.csv edit add-row -d "值1,值2"             # 添加行
+csv-tool data.csv edit delete-col -c "age"              # 删除列
+csv-tool data.csv edit rename-col -c name -n full_name  # 重命名列
+csv-tool dummy create out.csv -H "id,name" -r "1,Alice" # 创建新文件
 ```
 
-**预期收益**:
-- 从查看器升级为编辑器
-- 支持数据修改需求
+**测试覆盖**: 9个集成测试 + 5个单元测试
 
 ---
 
@@ -140,90 +127,88 @@ pub fn wait_for_index(&self) -> Result<()>
 
 ---
 
-### 5. 搜索和过滤功能
+### 5. 搜索和过滤功能 ✅ 已完成
 
-**当前状态**: ❌ 未实现  
-**优先级**: 🟡 中  
-**预计工作量**: 5-7天
+**当前状态**: ✅ 已实现  
+**完成时间**: 2024-12-25
 
-**功能描述**:
-- 全文搜索（支持正则表达式）
-- 列过滤（等于、包含、大于、小于等）
-- 多条件组合过滤
-- 搜索结果高亮
+**已实现功能**:
+- ✅ 全文搜索（文本和正则表达式）
+- ✅ 列过滤（按列名或列号）
+- ✅ 大小写敏感/不敏感搜索
+- ✅ 搜索结果高亮
+- ✅ 反向匹配
+- ✅ 结果统计
+- ✅ 结果数量限制
 
-**实现要点**:
-```rust
-pub fn search(&self, query: &str, regex: bool) -> Result<Vec<usize>>
-pub fn filter(&self, filters: Vec<Filter>) -> Result<Vec<usize>>
-pub fn read_filtered_page(&mut self, page: usize, filtered_rows: &[usize]) -> Result<Vec<CsvRecord>>
+**CLI命令**:
+```bash
+csv-tool data.csv search "关键词"        # 基本搜索
+csv-tool data.csv search -r "正则"       # 正则搜索
+csv-tool data.csv search "key" -i        # 大小写不敏感
+csv-tool data.csv search "key" -c name   # 指定列搜索
+csv-tool data.csv search "key" --count   # 统计匹配数
+csv-tool data.csv search "key" -V        # 反向匹配
 ```
 
-**技术细节**:
-- 使用 `regex` 库支持正则表达式
-- 需要构建搜索索引（可选）
-- 支持增量搜索
-
-**预期收益**:
-- 提升数据查找效率
-- 支持复杂查询需求
+**测试覆盖**: 7个集成测试
 
 ---
 
-### 6. 数据排序功能
+### 6. 数据排序功能 ✅ 已完成
 
-**当前状态**: ❌ 未实现  
-**优先级**: 🟡 中  
-**预计工作量**: 4-5天
+**当前状态**: ✅ 已实现  
+**完成时间**: 2024-12-25
 
-**功能描述**:
-- 按列排序（升序/降序）
-- 多列排序
-- 数值/日期/字符串智能识别
+**已实现功能**:
+- ✅ 按列排序（升序/降序）
+- ✅ 数值/字符串/自动类型识别
+- ✅ 大小写敏感/不敏感排序
+- ✅ 空值位置控制
+- ✅ 结果数量限制
+- ✅ 排序结果导出
 
-**实现要点**:
-```rust
-pub fn sort_by_column(&mut self, col: usize, ascending: bool) -> Result<()>
-pub fn sort_by_columns(&mut self, cols: Vec<(usize, bool)>) -> Result<()>
+**CLI命令**:
+```bash
+csv-tool data.csv sort name                    # 按name列升序
+csv-tool data.csv sort age --order desc        # 按age列降序
+csv-tool data.csv sort score -t number         # 指定数字类型
+csv-tool data.csv sort name -i                 # 大小写不敏感
+csv-tool data.csv sort score -n 10             # 只显示前10条
+csv-tool data.csv sort score -l                # 显示行号
+csv-tool data.csv sort score -o sorted.csv     # 导出到文件
 ```
 
-**技术细节**:
-- 需要读取所有数据到内存（或使用外部排序）
-- 大文件需要流式排序
-- 排序后需要更新索引
-
-**预期收益**:
-- 方便数据分析和查看
+**测试覆盖**: 9个集成测试
 
 ---
 
-### 7. 导出功能
+### 7. 导出功能 ✅ 已完成
 
-**当前状态**: ❌ 未实现  
-**优先级**: 🟡 中  
-**预计工作量**: 3-4天
+**当前状态**: ✅ 已实现  
+**完成时间**: 2024-12-25
 
-**功能描述**:
-- 导出为其他格式（JSON, Excel, Parquet等）
-- 导出筛选后的数据
-- 导出指定列
-- 批量导出
+**已实现功能**:
+- ✅ 导出为JSON格式（标准JSON数组、美化输出）
+- ✅ 导出为JSON Lines格式（每行一个对象）
+- ✅ 导出为TSV格式（制表符分隔）
+- ✅ 导出为CSV格式（自定义分隔符）
+- ✅ 列选择导出
+- ✅ 行范围导出
+- ✅ 搜索筛选导出
 
-**实现要点**:
-```rust
-pub fn export_json(&self, path: &Path, filters: Option<&Filters>) -> Result<()>
-pub fn export_excel(&self, path: &Path) -> Result<()>
-pub fn export_parquet(&self, path: &Path) -> Result<()>
+**CLI命令**:
+```bash
+csv-tool data.csv export output.json           # 导出为JSON
+csv-tool data.csv export output.jsonl          # JSON Lines
+csv-tool data.csv export output.tsv            # TSV格式
+csv-tool data.csv export out.json -c id,name   # 指定列
+csv-tool data.csv export out.json --from 1 --to 100  # 指定行
+csv-tool data.csv export out.json --search "Beijing" # 搜索筛选
+csv-tool data.csv export out.json --pretty     # 美化输出
 ```
 
-**技术细节**:
-- JSON: 使用 `serde_json`
-- Excel: 使用 `calamine` 或 `xlsxwriter`
-- Parquet: 使用 `parquet` crate
-
-**预期收益**:
-- 支持数据格式转换
-- 方便数据共享
+**测试覆盖**: 6个集成测试
 
 ---
 
@@ -375,15 +360,15 @@ cargo bench
 ## 📊 功能优先级总结
 
 ### 高优先级（建议优先实现）
-1. ✅ **索引持久化** - 显著提升重复打开文件的速度
-2. ✅ **CLI界面优化** - 提升用户体验，支持更多场景
-3. ⚠️ **CSV写入功能** - 如果要做编辑器，这是必需的
+1. ✅ **索引持久化** - ✅ 已完成！
+2. ✅ **CLI界面优化** - ✅ 已完成！
+3. ✅ **CSV写入功能** - ✅ 已完成！
 
 ### 中优先级（根据需求实现）
 4. 异步索引构建
-5. 搜索和过滤功能
-6. 数据排序功能
-7. 导出功能
+5. ✅ 搜索和过滤功能 - 已完成！
+6. ✅ 数据排序功能 - 已完成！
+7. ✅ 导出功能 - 已完成！
 
 ### 低优先级（可选功能）
 8. GUI界面
@@ -394,17 +379,17 @@ cargo bench
 
 ## 🎯 推荐实施顺序
 
-### 第一阶段（1-2周）
-1. **索引持久化** - 快速提升用户体验
-2. **CLI界面优化** - 完善基础功能
+### 第一阶段（1-2周） ✅ 已完成
+1. ✅ **索引持久化** - 已完成！
+2. ✅ **CLI界面优化** - 已完成！
 
-### 第二阶段（2-4周）
-3. **搜索和过滤** - 核心功能增强
-4. **数据排序** - 数据分析支持
+### 第二阶段（2-4周） ✅ 已完成
+3. ✅ **搜索和过滤** - 已完成！
+4. ✅ **数据排序** - 已完成！
 
-### 第三阶段（1-2月）
-5. **CSV写入功能** - 升级为编辑器
-6. **导出功能** - 数据格式转换
+### 第三阶段（1-2月） ✅ 已完成
+5. ✅ **CSV写入功能** - 已完成！
+6. ✅ **导出功能** - 已完成！
 
 ### 第四阶段（长期）
 7. **GUI界面** - 图形化界面
@@ -412,12 +397,20 @@ cargo bench
 
 ## 💡 实施建议
 
-### 快速提升用户体验
-优先实现：
-- ✅ 索引持久化（2-3天）
-- ✅ CLI界面优化（3-5天）
+### 快速提升用户体验 ✅ 已完成
+- ✅ 索引持久化（2-3天）- **已完成！**
+- ✅ CLI界面优化（3-5天）- **已完成！**
 
-这两个功能可以快速提升用户体验，工作量相对较小。
+### 核心功能增强 ✅ 已完成
+- ✅ 搜索和过滤功能（5-7天）- **已完成！**
+- ✅ 数据排序功能（4-5天）- **已完成！**
+- ✅ 导出功能 - **已完成！**
+- ✅ CSV写入功能（5-7天）- **已完成！**
+
+### 下一步推荐
+- ⚠️ GUI界面（2-3周）- 图形化操作
+- ⚠️ 并行处理优化 - 提升大文件性能
+- ⚠️ 统计信息功能 - 数据分析
 
 ### 功能完整性
 如果需要完整的CSV编辑器：
@@ -432,17 +425,28 @@ cargo bench
 
 ## 📝 总结
 
-当前项目**核心读取功能已完整**，主要缺失的是：
+当前项目**核心读写功能已完整**，主要缺失的是：
 
-1. **用户体验优化**（索引持久化、CLI优化）
-2. **功能增强**（搜索、排序、导出）
-3. **编辑器功能**（写入、编辑）
+1. ✅ **用户体验优化**（~~索引持久化~~ ✅、~~CLI优化~~ ✅）
+2. ✅ **功能增强**（~~搜索~~ ✅、~~排序~~ ✅、~~导出~~ ✅）
+3. ✅ **编辑器功能**（~~写入~~ ✅、~~编辑~~ ✅）
 4. **图形界面**（GUI）
 
-建议根据实际需求，按优先级逐步实现这些功能。
+**已完成：**
+- ✅ 索引持久化 - 重复打开文件速度提升10-100倍
+- ✅ CLI界面优化 - 专业的命令行参数、进度条、子命令支持
+- ✅ 搜索和过滤 - 全文搜索、正则表达式、列过滤、结果高亮
+- ✅ 导出功能 - JSON/JSONL/TSV/CSV导出，支持筛选和列选择
+- ✅ 数据排序 - 升序/降序、多类型、空值处理、结果导出
+- ✅ CSV写入 - 单元格编辑、行列操作、创建新文件、流式写入
+
+**建议下一步实现：**
+- GUI界面（预计2-3周）- 图形化操作
+- 或 并行处理优化 - 提升大文件性能
+- 或 统计信息功能 - 数据分析
 
 ---
 
-*最后更新: 2024*  
-*文档版本: 1.0*
+*最后更新: 2024-12-25*  
+*文档版本: 1.6*
 

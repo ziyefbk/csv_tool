@@ -144,6 +144,19 @@ impl RowIndex {
     /// # 返回
     /// 字节偏移量，用于定位到目标行附近
     pub fn seek_to_row(&self, target_row: usize) -> Result<u64> {
+        let (offset, _) = self.seek_to_row_with_info(target_row)?;
+        Ok(offset)
+    }
+
+    /// 查找目标行对应的字节偏移量和索引点行号
+    /// 
+    /// # 参数
+    /// - `target_row`: 目标行号（不包括表头，从0开始）
+    /// 
+    /// # 返回
+    /// (字节偏移量, 索引点对应的行号)
+    /// 如果没有合适的索引点（目标行在第一个索引点之前），返回 (0, 0)
+    pub fn seek_to_row_with_info(&self, target_row: usize) -> Result<(u64, usize)> {
         if target_row >= self.total_rows {
             return Err(CsvError::IndexOutOfBounds {
                 row: target_row,
@@ -153,7 +166,12 @@ impl RowIndex {
 
         // 如果索引为空，从头开始
         if self.offsets.is_empty() {
-            return Ok(0);
+            return Ok((0, 0));
+        }
+
+        // 如果目标行在第一个索引点之前，从头开始
+        if target_row < self.row_numbers[0] {
+            return Ok((0, 0));
         }
 
         // 二分查找找到最近的索引点
@@ -161,15 +179,12 @@ impl RowIndex {
             Ok(i) => i, // 精确匹配
             Err(i) => {
                 // 找到插入位置，使用前一个索引点
-                if i == 0 {
-                    0
-                } else {
-                    i - 1
-                }
+                // 这里 i > 0 因为我们已经处理了 target_row < row_numbers[0] 的情况
+                i - 1
             }
         };
 
-        Ok(self.offsets[idx])
+        Ok((self.offsets[idx], self.row_numbers[idx]))
     }
 
     /// 获取总行数

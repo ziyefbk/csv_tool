@@ -37,6 +37,13 @@ impl<'a> CsvRecord<'a> {
     /// - `line`: 一行的字节数据（不包括换行符）
     /// - `delimiter`: 分隔符（默认逗号）
     pub fn parse_line(line: &'a [u8], delimiter: u8) -> Self {
+        // 去除行尾的 \r（处理 Windows 换行符 CRLF）
+        let line = if !line.is_empty() && line[line.len() - 1] == b'\r' {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        
         let mut fields = Vec::new();
         let mut start = 0;
         let mut in_quotes = false;
@@ -72,7 +79,7 @@ impl<'a> CsvRecord<'a> {
     }
 
     /// 解析单个字段（处理引号和转义）
-    fn parse_field(field: &[u8]) -> Cow<str> {
+    fn parse_field(field: &[u8]) -> Cow<'_, str> {
         // 移除首尾的引号
         let field = if field.len() >= 2 && field[0] == b'"' && field[field.len() - 1] == b'"' {
             &field[1..field.len() - 1]
@@ -287,7 +294,7 @@ impl CsvReader {
     /// 
     /// # 返回
     /// 该页的记录列表
-    pub fn read_page(&mut self, page: usize, page_size: usize) -> Result<Vec<CsvRecord>> {
+    pub fn read_page(&mut self, page: usize, page_size: usize) -> Result<Vec<CsvRecord<'_>>> {
         // 计算目标行范围
         let start_row = page * page_size;
         let end_row = (start_row + page_size).min(self.info.total_rows);
@@ -297,17 +304,23 @@ impl CsvReader {
         }
 
         // 使用索引快速定位到起始行附近
-        let index_offset = self.index.seek_to_row(start_row)? as usize;
+        let (index_offset, index_row) = self.index.seek_to_row_with_info(start_row)?;
+        let index_offset = index_offset as usize;
         
         // 从起始偏移量开始解析行
         let mut records = Vec::new();
         // 确保从数据区域开始（跳过表头）
         let mut current_offset = index_offset.max(self.data_start_offset as usize);
-        let mut current_row = start_row;
+        // 设置当前行号为索引点对应的行号，如果从数据开头开始则为0
+        let mut current_row = if index_offset <= self.data_start_offset as usize {
+            0
+        } else {
+            index_row
+        };
 
         // 如果使用索引定位，需要找到实际的行起始位置
         // 从索引点开始向前找到行首（最多向前查找1000字节）
-        if current_offset > 0 {
+        if current_offset > 0 && current_offset > self.data_start_offset as usize {
             let search_start = current_offset.saturating_sub(1000);
             for i in (search_start..current_offset).rev() {
                 if self.mmap[i] == b'\n' {
@@ -381,6 +394,122 @@ impl CsvReader {
     /// 清空缓存
     pub fn clear_cache(&mut self) {
         self.cache.clear();
+    }
+
+    /// 搜索CSV文件
+    /// 
+    /// # 参数
+    /// - `options`: 搜索选项
+    /// 
+    /// # 返回
+    /// 搜索结果列表
+    pub fn search(&self, options: &crate::csv::search::SearchOptions) -> Result<Vec<crate::csv::search::SearchResult>> {
+        use crate::csv::search::{Searcher, SearchResult};
+        
+        let searcher = Searcher::new(options.clone());
+        let mut results = Vec::new();
+        let max_results = options.max_results.unwrap_or(usize::MAX);
+        
+        // 从数据起始位置开始扫描
+        let mut current_offset = self.data_start_offset as usize;
+        let mut row_number = 0;
+        
+        while current_offset < self.mmap.len() && results.len() < max_results {
+            // 找到当前行的结束位置
+            let mut line_end = current_offset;
+            let mut found = false;
+            
+            for (i, &byte) in self.mmap[current_offset..].iter().enumerate() {
+                if byte == b'\n' {
+                    line_end = current_offset + i;
+                    found = true;
+                    break;
+                }
+            }
+            
+            // 如果没找到换行符，说明是最后一行
+            if !found {
+                if current_offset < self.mmap.len() {
+                    line_end = self.mmap.len();
+                } else {
+                    break;
+                }
+            }
+            
+            // 解析当前行
+            let line = &self.mmap[current_offset..line_end];
+            let record = CsvRecord::parse_line(line, self.delimiter);
+            
+            // 检查是否匹配
+            if let Some(matches) = searcher.matches_record(&record) {
+                results.push(SearchResult {
+                    row_number,
+                    matches,
+                    record: record.to_owned(),
+                });
+            }
+            
+            // 移动到下一行
+            current_offset = line_end + 1;
+            row_number += 1;
+        }
+        
+        Ok(results)
+    }
+
+    /// 统计匹配数量（不返回详细结果，更高效）
+    pub fn count_matches(&self, options: &crate::csv::search::SearchOptions) -> Result<usize> {
+        use crate::csv::search::Searcher;
+        
+        let searcher = Searcher::new(options.clone());
+        let mut count = 0;
+        
+        // 从数据起始位置开始扫描
+        let mut current_offset = self.data_start_offset as usize;
+        
+        while current_offset < self.mmap.len() {
+            // 找到当前行的结束位置
+            let mut line_end = current_offset;
+            let mut found = false;
+            
+            for (i, &byte) in self.mmap[current_offset..].iter().enumerate() {
+                if byte == b'\n' {
+                    line_end = current_offset + i;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if !found {
+                if current_offset < self.mmap.len() {
+                    line_end = self.mmap.len();
+                } else {
+                    break;
+                }
+            }
+            
+            // 解析并检查匹配
+            let line = &self.mmap[current_offset..line_end];
+            let record = CsvRecord::parse_line(line, self.delimiter);
+            
+            if searcher.is_match(&record) {
+                count += 1;
+            }
+            
+            current_offset = line_end + 1;
+        }
+        
+        Ok(count)
+    }
+
+    /// 获取表头
+    pub fn headers(&self) -> &[String] {
+        &self.info.headers
+    }
+
+    /// 获取分隔符
+    pub fn delimiter(&self) -> u8 {
+        self.delimiter
     }
 
     /// 加载或构建索引
