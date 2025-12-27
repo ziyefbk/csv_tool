@@ -1,11 +1,56 @@
 use crate::error::{CsvError, Result};
-use crate::csv::{RowIndex, PageCache, IndexMetadata};
+use crate::csv::{RowIndex, PageCache, IndexMetadata, RowEstimate};
 use memmap2::{Mmap, MmapOptions};
+use memchr::memchr;  // SIMD加速的换行符查找
 use std::borrow::Cow;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::SystemTime;
+use std::thread;
+
+/// 后台索引构建句柄
+pub struct IndexBuildHandle {
+    handle: Option<thread::JoinHandle<(RowIndex, bool)>>,
+    cancel_flag: Arc<AtomicBool>,
+    progress: Arc<AtomicUsize>,
+    total_bytes: usize,
+}
+
+impl IndexBuildHandle {
+    /// 获取构建进度（0.0 - 100.0）
+    pub fn progress(&self) -> f64 {
+        let current = self.progress.load(Ordering::Relaxed);
+        if self.total_bytes == 0 {
+            100.0
+        } else {
+            (current as f64 / self.total_bytes as f64) * 100.0
+        }
+    }
+
+    /// 取消构建
+    pub fn cancel(&self) {
+        self.cancel_flag.store(true, Ordering::Relaxed);
+    }
+
+    /// 等待构建完成并返回结果
+    pub fn wait(mut self) -> Option<(RowIndex, bool)> {
+        self.handle.take().and_then(|h| h.join().ok())
+    }
+
+    /// 检查是否完成
+    pub fn is_finished(&self) -> bool {
+        self.handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
+    }
+}
+
+impl Drop for IndexBuildHandle {
+    fn drop(&mut self) {
+        // 如果句柄被丢弃但线程还在运行，设置取消标志
+        self.cancel_flag.store(true, Ordering::Relaxed);
+    }
+}
 
 /// CSV文件信息
 #[derive(Debug, Clone)]
@@ -137,6 +182,16 @@ pub struct CsvReader {
     delimiter: u8,
     /// 数据起始偏移量（跳过表头后的位置）
     data_start_offset: u64,
+    /// 是否有表头
+    has_headers: bool,
+    /// 索引粒度
+    index_granularity: usize,
+    /// 后台索引构建取消标志
+    cancel_flag: Arc<AtomicBool>,
+    /// 后台索引构建进度
+    build_progress: Arc<AtomicUsize>,
+    /// 行数估算（如果尚未完成精确计数）
+    row_estimate: Option<RowEstimate>,
 }
 
 impl CsvReader {
@@ -191,7 +246,7 @@ impl CsvReader {
             file_mtime,
         )?;
 
-        // 计算数据起始偏移量（跳过表头）
+        // 计算数据起始偏移量（跳过表头）- 使用memchr加速
         let data_start_offset = if has_headers {
             let start = if mmap.len() >= 3 && &mmap[0..3] == b"\xEF\xBB\xBF" {
                 3
@@ -199,14 +254,12 @@ impl CsvReader {
                 0
             };
             // 找到第一个换行符后的位置
-            let mut offset = start as u64;
-            for (i, &byte) in mmap[start..].iter().enumerate() {
-                if byte == b'\n' {
-                    offset = (start + i + 1) as u64;
-                    break;
-                }
+            let header_slice = &mmap[start..];
+            if let Some(pos) = memchr(b'\n', header_slice) {
+                (start + pos + 1) as u64
+            } else {
+                start as u64
             }
-            offset
         } else {
             if mmap.len() >= 3 && &mmap[0..3] == b"\xEF\xBB\xBF" {
                 3
@@ -230,7 +283,214 @@ impl CsvReader {
             info,
             delimiter,
             data_start_offset,
+            has_headers,
+            index_granularity,
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+            build_progress: Arc::new(AtomicUsize::new(0)),
+            row_estimate: None,
         })
+    }
+
+    /// 快速打开CSV文件（毫秒级响应）
+    /// 
+    /// 与普通 `open` 不同，此方法：
+    /// 1. 使用采样估算行数，而不是扫描整个文件
+    /// 2. 只构建前几页的索引
+    /// 3. 可以在后台继续构建完整索引
+    /// 
+    /// # 参数
+    /// - `path`: CSV文件路径
+    /// - `has_headers`: 是否有表头
+    /// - `delimiter`: 分隔符
+    /// - `index_granularity`: 索引粒度
+    /// 
+    /// # 性能
+    /// 对于任意大小的文件，都能在 100ms 以内返回
+    pub fn open_fast<P: AsRef<Path>>(
+        path: P,
+        has_headers: bool,
+        delimiter: u8,
+        index_granularity: usize,
+    ) -> Result<Self> {
+        let path = path.as_ref();
+        
+        // 获取文件元数据
+        let file_metadata = std::fs::metadata(path)?;
+        let file_size = file_metadata.len();
+
+        // 打开文件并创建内存映射
+        let file = File::open(path)?;
+        let mmap = Arc::new(
+            unsafe { MmapOptions::new().map(&file) }
+                .map_err(|e| CsvError::Mmap(e.to_string()))?
+        );
+
+        // 读取表头
+        let headers = if has_headers {
+            Self::read_headers(&mmap, delimiter)?
+        } else {
+            Vec::new()
+        };
+
+        let total_cols = if has_headers {
+            headers.len()
+        } else {
+            Self::count_columns_first_line(&mmap, delimiter)?
+        };
+
+        // 尝试加载已有索引
+        let index_path = RowIndex::index_file_path(path);
+        let (index, total_rows, row_estimate) = if index_path.exists() {
+            match RowIndex::load_from_file(&index_path) {
+                Ok((index, metadata)) => {
+                    if RowIndex::is_index_valid(path, &metadata) && metadata.granularity == index_granularity {
+                        let total_rows = index.total_rows();
+                        (index, total_rows, None)
+                    } else {
+                        // 索引无效，使用快速模式
+                        Self::build_fast_index(&mmap, has_headers, index_granularity)?
+                    }
+                }
+                Err(_) => Self::build_fast_index(&mmap, has_headers, index_granularity)?,
+            }
+        } else {
+            Self::build_fast_index(&mmap, has_headers, index_granularity)?
+        };
+
+        // 计算数据起始偏移量
+        let data_start_offset = if has_headers {
+            let start = if mmap.len() >= 3 && &mmap[0..3] == b"\xEF\xBB\xBF" { 3 } else { 0 };
+            let header_slice = &mmap[start..];
+            if let Some(pos) = memchr(b'\n', header_slice) {
+                (start + pos + 1) as u64
+            } else {
+                start as u64
+            }
+        } else {
+            if mmap.len() >= 3 && &mmap[0..3] == b"\xEF\xBB\xBF" { 3 } else { 0 }
+        };
+
+        let info = CsvInfo {
+            file_path: path.to_path_buf(),
+            file_size,
+            total_rows,
+            total_cols,
+            headers,
+        };
+
+        Ok(Self {
+            mmap,
+            index,
+            cache: PageCache::default(),
+            info,
+            delimiter,
+            data_start_offset,
+            has_headers,
+            index_granularity,
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+            build_progress: Arc::new(AtomicUsize::new(0)),
+            row_estimate,
+        })
+    }
+
+    /// 快速构建索引（采样估算 + 部分索引）
+    fn build_fast_index(
+        mmap: &Mmap,
+        has_headers: bool,
+        granularity: usize,
+    ) -> Result<(RowIndex, usize, Option<RowEstimate>)> {
+        // 采样估算行数（采样前 1MB）
+        const SAMPLE_SIZE: usize = 1024 * 1024;
+        let estimate = RowIndex::estimate_rows(mmap, has_headers, SAMPLE_SIZE);
+        
+        // 对于小文件（<1MB），直接构建完整索引（通常 <100ms）
+        const SMALL_FILE_THRESHOLD: usize = 1 * 1024 * 1024;
+        if mmap.len() <= SMALL_FILE_THRESHOLD || estimate.is_exact {
+            let index = RowIndex::build(mmap, has_headers, granularity)?;
+            let total_rows = index.total_rows();
+            return Ok((index, total_rows, None));
+        }
+
+        // 对于大文件，只构建前 2000 行的索引（确保首页立即可用）
+        const INITIAL_ROWS: usize = 2000;
+        let (index, _complete) = RowIndex::build_partial(mmap, has_headers, granularity, Some(INITIAL_ROWS))?;
+        
+        // 使用估算的行数（但至少是已索引的行数）
+        let total_rows = estimate.estimated_rows.max(index.total_rows());
+        
+        Ok((index, total_rows, Some(estimate)))
+    }
+
+    /// 在后台继续构建完整索引
+    /// 
+    /// # 返回
+    /// 返回一个句柄，可以用于等待构建完成或取消构建
+    pub fn build_index_async(&mut self) -> IndexBuildHandle {
+        let mmap = Arc::clone(&self.mmap);
+        let mut index = self.index.clone();
+        let cancel_flag = Arc::clone(&self.cancel_flag);
+        let progress = Arc::clone(&self.build_progress);
+        let granularity = self.index_granularity;
+        let _has_headers = self.has_headers; // 保留用于未来扩展
+        let file_path = self.info.file_path.clone();
+        let file_size = self.info.file_size;
+        let file_mtime = std::fs::metadata(&file_path)
+            .and_then(|m| m.modified())
+            .unwrap_or_else(|_| SystemTime::now());
+
+        let handle = thread::spawn(move || {
+            // 继续构建索引
+            let result = index.continue_build(&mmap, Some(&cancel_flag), Some(&progress));
+            
+            if let Ok(true) = result {
+                // 索引构建完成，保存到文件
+                let metadata = IndexMetadata::new(
+                    file_path.clone(),
+                    file_size,
+                    file_mtime,
+                    granularity,
+                );
+                let _ = index.save_to_file(&file_path, &metadata);
+            }
+
+            (index, result.is_ok())
+        });
+
+        IndexBuildHandle {
+            handle: Some(handle),
+            cancel_flag: Arc::clone(&self.cancel_flag),
+            progress: Arc::clone(&self.build_progress),
+            total_bytes: self.info.file_size as usize,
+        }
+    }
+
+    /// 更新索引（从后台构建结果）
+    pub fn update_index(&mut self, new_index: RowIndex) {
+        self.info.total_rows = new_index.total_rows();
+        self.index = new_index;
+        self.row_estimate = None; // 清除估算值，使用精确值
+        self.cache.clear(); // 清除缓存，因为行数可能变化
+    }
+
+    /// 检查索引是否完成
+    pub fn is_index_complete(&self) -> bool {
+        self.index.is_complete()
+    }
+
+    /// 获取行数估算信息（如果有）
+    pub fn row_estimate(&self) -> Option<&RowEstimate> {
+        self.row_estimate.as_ref()
+    }
+
+    /// 获取索引构建进度（0-100）
+    pub fn index_build_progress(&self) -> f64 {
+        let progress = self.build_progress.load(Ordering::Relaxed);
+        let total = self.info.file_size as usize;
+        if total == 0 {
+            100.0
+        } else {
+            (progress as f64 / total as f64) * 100.0
+        }
     }
 
     /// 读取表头
@@ -242,14 +502,12 @@ impl CsvReader {
             0
         };
 
-        // 找到第一行的结束位置
-        let mut line_end = start;
-        for (i, &byte) in mmap[start..].iter().enumerate() {
-            if byte == b'\n' || byte == b'\r' {
-                line_end = start + i;
-                break;
-            }
-        }
+        // 找到第一行的结束位置 - 使用memchr加速
+        let header_slice = &mmap[start..];
+        let line_end = memchr(b'\n', header_slice)
+            .or_else(|| memchr(b'\r', header_slice))
+            .map(|pos| start + pos)
+            .unwrap_or(mmap.len());
 
         if line_end == start {
             return Err(CsvError::Format("文件为空或格式错误".to_string()));
@@ -269,13 +527,12 @@ impl CsvReader {
             0
         };
 
-        let mut line_end = start;
-        for (i, &byte) in mmap[start..].iter().enumerate() {
-            if byte == b'\n' || byte == b'\r' {
-                line_end = start + i;
-                break;
-            }
-        }
+        // 找到第一行的结束位置 - 使用memchr加速
+        let first_slice = &mmap[start..];
+        let line_end = memchr(b'\n', first_slice)
+            .or_else(|| memchr(b'\r', first_slice))
+            .map(|pos| start + pos)
+            .unwrap_or(mmap.len());
 
         if line_end == start {
             return Err(CsvError::Format("文件为空或格式错误".to_string()));
@@ -330,37 +587,35 @@ impl CsvReader {
             }
         }
 
-        // 从当前位置开始扫描到目标行
+        // 从当前位置开始扫描到目标行 - 使用memchr加速
         // 由于索引是稀疏的，我们需要从索引点继续扫描到目标行
         while current_row < start_row && current_offset < self.mmap.len() {
-            for (i, &byte) in self.mmap[current_offset..].iter().enumerate() {
-                if byte == b'\n' {
-                    current_offset += i + 1;
-                    current_row += 1;
-                    break;
-                }
+            let remaining = &self.mmap[current_offset..];
+            if let Some(pos) = memchr(b'\n', remaining) {
+                current_offset += pos + 1;
+                current_row += 1;
+            } else {
+                break; // 文件结束
             }
             if current_row >= start_row {
                 break;
             }
         }
 
-        // 解析行直到达到目标数量或文件结束
+        // 解析行直到达到目标数量或文件结束 - 使用memchr加速
         while current_row < end_row && current_offset < self.mmap.len() {
             // 找到当前行的结束位置
-            let mut line_end = current_offset;
-            let mut found = false;
-            for (i, &byte) in self.mmap[current_offset..].iter().enumerate() {
-                if byte == b'\n' {
-                    line_end = current_offset + i;
-                    found = true;
-                    break;
+            let remaining = &self.mmap[current_offset..];
+            let line_end = if let Some(pos) = memchr(b'\n', remaining) {
+                current_offset + pos
+            } else {
+                // 文件结束，但可能还有最后一行
+                if current_offset < self.mmap.len() {
+                    self.mmap.len()
+                } else {
+                    break; // 文件结束
                 }
-            }
-
-            if !found {
-                break; // 文件结束
-            }
+            };
 
             // 解析当前行
             let line = &self.mmap[current_offset..line_end];
@@ -415,26 +670,18 @@ impl CsvReader {
         let mut row_number = 0;
         
         while current_offset < self.mmap.len() && results.len() < max_results {
-            // 找到当前行的结束位置
-            let mut line_end = current_offset;
-            let mut found = false;
-            
-            for (i, &byte) in self.mmap[current_offset..].iter().enumerate() {
-                if byte == b'\n' {
-                    line_end = current_offset + i;
-                    found = true;
-                    break;
-                }
-            }
-            
-            // 如果没找到换行符，说明是最后一行
-            if !found {
+            // 找到当前行的结束位置 - 使用memchr加速
+            let remaining = &self.mmap[current_offset..];
+            let line_end = if let Some(pos) = memchr(b'\n', remaining) {
+                current_offset + pos
+            } else {
+                // 文件结束，但可能还有最后一行
                 if current_offset < self.mmap.len() {
-                    line_end = self.mmap.len();
+                    self.mmap.len()
                 } else {
                     break;
                 }
-            }
+            };
             
             // 解析当前行
             let line = &self.mmap[current_offset..line_end];
@@ -468,25 +715,18 @@ impl CsvReader {
         let mut current_offset = self.data_start_offset as usize;
         
         while current_offset < self.mmap.len() {
-            // 找到当前行的结束位置
-            let mut line_end = current_offset;
-            let mut found = false;
-            
-            for (i, &byte) in self.mmap[current_offset..].iter().enumerate() {
-                if byte == b'\n' {
-                    line_end = current_offset + i;
-                    found = true;
-                    break;
-                }
-            }
-            
-            if !found {
+            // 找到当前行的结束位置 - 使用memchr加速
+            let remaining = &self.mmap[current_offset..];
+            let line_end = if let Some(pos) = memchr(b'\n', remaining) {
+                current_offset + pos
+            } else {
+                // 文件结束，但可能还有最后一行
                 if current_offset < self.mmap.len() {
-                    line_end = self.mmap.len();
+                    self.mmap.len()
                 } else {
                     break;
                 }
-            }
+            };
             
             // 解析并检查匹配
             let line = &self.mmap[current_offset..line_end];
@@ -545,7 +785,7 @@ impl CsvReader {
             }
         }
 
-        // 构建新索引
+        // 构建新索引（这里不传递进度回调，因为调用者会处理）
         let index = RowIndex::build(mmap, has_headers, index_granularity)?;
         let total_rows = index.total_rows();
 

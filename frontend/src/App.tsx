@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
-import { FileText, Loader2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { FileText, Loader2, Search, X } from "lucide-react";
 import CSVTable from "./components/CSVTable";
 import FileInfo from "./components/FileInfo";
 import Pagination from "./components/Pagination";
-import clsx from "clsx";
 
 interface CsvFileInfo {
   file_path: string;

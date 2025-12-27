@@ -30,13 +30,17 @@ struct Args {
     #[arg(value_name = "FILE")]
     file: String,
 
+    /// 页码（从1开始，向后兼容：可直接传递数字而不使用-p）
+    #[arg(value_name = "PAGE", help_heading = "向后兼容")]
+    page_arg: Option<usize>,
+
     /// 分隔符字符
     #[arg(short, long, default_value = ",", value_name = "CHAR")]
     delimiter: char,
 
     /// 页码（从1开始）
-    #[arg(short, long, default_value = "1", value_name = "PAGE")]
-    page: usize,
+    #[arg(short, long, value_name = "PAGE")]
+    page: Option<usize>,
 
     /// 每页显示行数
     #[arg(short = 's', long, default_value = "20", value_name = "SIZE")]
@@ -290,10 +294,17 @@ enum EditAction {
 fn main() -> Result<()> {
     let args = Args::parse();
     
+    // 向后兼容：如果直接传递了页码数字（page_arg），优先使用它
+    let final_page = if let Some(page_arg) = args.page_arg {
+        page_arg
+    } else {
+        args.page.unwrap_or(1)
+    };
+    
     match &args.command {
         Some(Commands::Info) => cmd_info(&args),
         Some(Commands::View { page }) => {
-            let page_num = page.unwrap_or(args.page);
+            let page_num = page.or(Some(final_page)).unwrap_or(1);
             cmd_view(&args, page_num)
         }
         Some(Commands::Search { 
@@ -363,11 +374,11 @@ fn main() -> Result<()> {
         Some(Commands::Edit { action }) => cmd_edit(&args, action),
         Some(Commands::Create { output, headers, rows }) => cmd_create(
             output,
-            headers,
+        headers,
             rows,
             args.delimiter as u8,
         ),
-        None => cmd_view(&args, args.page),
+        None => cmd_view(&args, final_page),
     }
 }
 
@@ -382,7 +393,7 @@ fn cmd_info(args: &Args) -> Result<()> {
     
     let pb = create_spinner("正在打开文件...");
     
-    let reader = CsvReader::open(
+    let reader = CsvReader::open_fast(
         &args.file,
         !args.no_headers,
         args.delimiter as u8,
@@ -455,18 +466,43 @@ fn cmd_view(args: &Args, page: usize) -> Result<()> {
         println!("\n🔄 正在打开文件: {}...", args.file);
     }
     
-    let pb = create_spinner("正在加载...");
+    // 检查是否需要构建索引
+    let index_path = RowIndex::index_file_path(std::path::Path::new(&args.file));
+    let needs_build = !index_path.exists();
     
-    let mut reader = CsvReader::open(
+    let pb = if needs_build {
+        // 需要构建索引，显示进度条
+        let pb = ProgressBar::new(100);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}% {msg}")
+                .unwrap()
+                .progress_chars("#>-"),
+        );
+        pb.set_message("正在构建索引...");
+        Some(pb)
+    } else {
+        // 只需要加载索引，显示spinner
+        Some(create_spinner("正在加载索引..."))
+    };
+    
+    let mut reader = CsvReader::open_fast(
         &args.file,
         !args.no_headers,
         args.delimiter as u8,
         args.granularity,
     )?;
     
-    pb.finish_and_clear();
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
     
     let open_duration = start_time.elapsed();
+    
+    // 如果是第一次构建索引，显示提示信息
+    if needs_build && !args.quiet {
+        println!("💡 提示: 索引已构建并保存，下次打开会更快！");
+    }
     
     // 获取文件信息
     let info = reader.info().clone();
@@ -542,7 +578,7 @@ fn cmd_search(
     
     let pb = create_spinner("正在打开文件...");
     
-    let reader = CsvReader::open(
+    let reader = CsvReader::open_fast(
         &args.file,
         !args.no_headers,
         args.delimiter as u8,
@@ -800,8 +836,8 @@ fn print_table(
         // 填充空列
         for _ in headers.len()..col_count {
             print!(" {:^width$} │", "", width = max_width);
-        }
-        println!();
+    }
+    println!();
         println!("{}", full_separator);
     }
     
@@ -902,7 +938,7 @@ fn cmd_export(
     
     let pb = create_spinner("正在打开文件...");
     
-    let reader = CsvReader::open(
+    let reader = CsvReader::open_fast(
         &args.file,
         !args.no_headers,
         args.delimiter as u8,
@@ -1001,7 +1037,7 @@ fn cmd_sort(
     
     let pb = create_spinner("正在打开文件...");
     
-    let reader = CsvReader::open(
+    let reader = CsvReader::open_fast(
         &args.file,
         !args.no_headers,
         args.delimiter as u8,

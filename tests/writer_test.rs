@@ -229,3 +229,4 @@ fn test_write_options() {
     cleanup(&out);
 }
 
+

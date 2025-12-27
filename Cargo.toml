@@ -37,6 +37,10 @@ indicatif = "0.17"  # 进度条
 # 搜索功能
 regex = "1.10"  # 正则表达式支持
 
+# 性能优化
+memchr = "2.7"  # SIMD加速的字符串搜索（用于快速查找换行符）
+rayon = "1.8"   # 并行处理（用于多线程索引构建）
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

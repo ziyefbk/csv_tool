@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-import clsx from "clsx";
 
 interface CSVTableProps {
   headers: string[];

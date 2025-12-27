@@ -1,51 +1,119 @@
 @echo off
-REM CSV Tool GUI 设置脚本 (Windows)
+chcp 65001 >nul 2>&1
+REM CSV Tool GUI Setup Script for Windows
 
-echo 🚀 开始设置 CSV Tool GUI...
+echo.
+echo ========================================
+echo   CSV Tool GUI - Windows Setup
+echo ========================================
+echo.
 
-REM 检查 Node.js
+REM Check Node.js
+echo [1/4] Checking Node.js...
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ 未找到 Node.js，请先安装 Node.js 18 或更高版本
+    echo [ERROR] Node.js not found
+    echo.
+    echo Please install Node.js 18 or higher:
+    echo https://nodejs.org/
+    echo.
+    pause
     exit /b 1
 )
 
-echo ✅ Node.js 版本:
-node -v
+for /f "tokens=1 delims=v" %%i in ('node -v 2^>nul') do set NODE_VERSION=%%i
+echo [OK] Node.js version: %NODE_VERSION%
 
-REM 检查 Rust
+REM Check Rust
+echo.
+echo [2/4] Checking Rust...
 where cargo >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ 未找到 Rust，请先安装 Rust
+    echo [ERROR] Rust not found
+    echo.
+    echo Please install Rust:
+    echo https://rustup.rs/
+    echo.
+    echo Download rustup-init.exe and run it
+    echo.
+    pause
     exit /b 1
 )
 
-echo ✅ Rust 版本:
-rustc --version
+for /f "tokens=1" %%i in ('rustc --version 2^>nul') do set RUST_VERSION=%%i
+echo [OK] Rust version: %RUST_VERSION%
 
-REM 安装前端依赖
-echo 📦 安装前端依赖...
-cd frontend
-call npm install
-
+REM Check and install cargo-tauri-cli
+echo.
+echo [3/4] Checking Tauri CLI...
+cargo tauri --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ 前端依赖安装失败
+    echo [WARNING] cargo-tauri-cli not found, installing...
+    cargo install tauri-cli --version "^1.5" --locked
+    if %errorlevel% neq 0 (
+        echo [ERROR] Tauri CLI installation failed
+        echo.
+        echo Please install manually:
+        echo   cargo install tauri-cli --version "^1.5" --locked
+        echo.
+        pause
+        exit /b 1
+    )
+    echo [OK] Tauri CLI installed
+) else (
+    echo [OK] Tauri CLI already installed
+)
+
+REM Check frontend directory
+if not exist "frontend" (
+    echo [ERROR] frontend directory not found
+    echo Please run this script from project root
+    pause
     exit /b 1
 )
 
-echo ✅ 前端依赖安装完成
-
-REM 返回根目录
+REM Install frontend dependencies
+echo.
+echo [4/4] Installing frontend dependencies...
+echo This may take a few minutes, please wait...
+echo.
+cd frontend
+call npm install >nul 2>&1
+set INSTALL_RESULT=%errorlevel%
 cd ..
 
-echo.
-echo ✨ 设置完成！
-echo.
-echo 运行开发模式:
-echo   cd tauri ^&^& cargo tauri dev
-echo.
-echo 构建生产版本:
-echo   cd tauri ^&^& cargo tauri build
+if %INSTALL_RESULT% neq 0 (
+    echo.
+    echo [ERROR] Frontend dependencies installation failed
+    echo.
+    echo Possible solutions:
+    echo 1. Check network connection
+    echo 2. Try clearing cache: npm cache clean --force
+    echo 3. Use mirror (if in China): npm config set registry https://registry.npmmirror.com
+    echo.
+    pause
+    exit /b 1
+)
 
+echo.
+echo [OK] Frontend dependencies installed
+
+echo.
+echo ========================================
+echo   Setup Complete!
+echo ========================================
+echo.
+echo Next steps:
+echo.
+echo 1. Build EXE file:
+echo    Run: .\构建EXE.bat
+echo.
+echo 2. Or run in development mode:
+echo    Run: .\运行GUI.bat
+echo.
+echo Tips:
+echo - First build will download Rust dependencies, takes longer
+echo - Make sure Microsoft C++ Build Tools are installed
+echo - See docs\WINDOWS_GUI_GUIDE.md for detailed help
+echo.
 pause
-

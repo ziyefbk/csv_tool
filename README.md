@@ -49,12 +49,62 @@ cargo run --release
 
 ### 命令行模式
 
+#### 基本用法
+
 ```bash
-# 显示第1页
-cargo run --release test.csv
+# 显示第1页（默认）
+cargo run --release -- data.csv
 
 # 显示第2页
-cargo run --release test.csv 2
+cargo run --release -- data.csv -p 2
+
+# 指定每页显示行数
+cargo run --release -- data.csv -p 2 -s 50
+
+# 使用分号作为分隔符
+cargo run --release -- data.csv -d ';'
+```
+
+#### 子命令
+
+```bash
+# 显示文件详细信息
+cargo run --release -- data.csv info
+
+# 搜索数据
+cargo run --release -- data.csv search "关键词"
+cargo run --release -- data.csv search "关键词" -i          # 大小写不敏感
+cargo run --release -- data.csv search "关键词" -r          # 正则表达式
+cargo run --release -- data.csv search "关键词" -c "列名"   # 在指定列搜索
+
+# 导出数据
+cargo run --release -- data.csv export output.json --format json
+cargo run --release -- data.csv export output.csv --format csv
+
+# 排序数据
+cargo run --release -- data.csv sort -c "列名" --order asc
+cargo run --release -- data.csv sort -c "列名" --order desc
+
+# 编辑CSV文件
+cargo run --release -- data.csv edit "set 1 2 新值"        # 设置第1行第2列的值
+cargo run --release -- data.csv edit "delete-row 5"        # 删除第5行
+cargo run --release -- data.csv edit "append-row 值1,值2,值3"  # 添加行
+
+# 创建新CSV文件
+cargo run --release -- create new.csv --headers "列1,列2,列3"
+```
+
+#### Windows PowerShell 中文路径问题
+
+如果文件路径包含中文，建议使用短路径或引号：
+
+```powershell
+# 使用引号包裹路径
+cargo run --release -- "E:\路径\文件.csv" -p 2
+
+# 或者先切换到文件所在目录
+cd "E:\路径"
+cargo run --release -- 文件.csv -p 2
 ```
 
 程序会显示：

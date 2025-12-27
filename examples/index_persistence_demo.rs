@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     // 第一次打开：构建索引
     println!("🔄 第一次打开文件（构建索引）...");
     let start1 = Instant::now();
-    let mut reader1 = CsvReader::open(csv_file, true, b',', 100)?;
+    let reader1 = CsvReader::open(csv_file, true, b',', 100)?;
     let duration1 = start1.elapsed();
     let info1 = reader1.info();
     

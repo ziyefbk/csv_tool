@@ -180,3 +180,4 @@ fn test_search_max_results() -> Result<()> {
     Ok(())
 }
 
+
