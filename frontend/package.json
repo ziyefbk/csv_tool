@@ -11,21 +11,23 @@
     "ui:add": "shadcn-ui add"
   },
   "dependencies": {
-    "@tauri-apps/api": "^1.5.0",
     "@tanstack/react-query": "^5.17.0",
     "@tanstack/react-table": "^8.10.7",
     "@tanstack/react-virtual": "^3.0.1",
+    "@tauri-apps/api": "^1.5.0",
+    "@types/react-window": "^1.8.8",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
+    "date-fns": "^2.30.0",
+    "framer-motion": "^10.16.16",
+    "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.48.2",
-    "zustand": "^4.4.7",
-    "zod": "^3.22.4",
-    "framer-motion": "^10.16.16",
-    "date-fns": "^2.30.0",
-    "lucide-react": "^0.294.0",
-    "clsx": "^2.0.0",
+    "react-window": "^1.8.11",
     "tailwind-merge": "^2.2.0",
-    "class-variance-authority": "^0.7.0"
+    "zod": "^3.22.4",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.0",
@@ -45,4 +47,3 @@
     "vite": "^5.0.8"
   }
 }
-

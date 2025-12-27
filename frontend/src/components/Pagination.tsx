@@ -15,7 +15,7 @@ export default function Pagination({
   onPageChange,
   onPageSizeChange,
 }: PaginationProps) {
-  const pageSizes = [20, 50, 100, 200];
+  const pageSizes = [20, 50, 100, 200, 500, 1000]; // Added larger options for virtual scrolling
 
   const getPageNumbers = () => {
     const pages: (number | string)[] = [];

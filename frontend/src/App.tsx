@@ -30,7 +30,7 @@ function App() {
   const [fileInfo, setFileInfo] = useState<CsvFileInfo | null>(null);
   const [pageData, setPageData] = useState<PageData | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(200); // Increased for better virtual scrolling performance
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
