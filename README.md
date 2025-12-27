@@ -1,256 +1,324 @@
 # CSV Tool
 
-一款使用Rust开发的高性能大型CSV文件查看和处理工具。
+A high-performance CSV file viewer and processor built with Rust, supporting large files up to GB scale.
 
-## ✨ 特性
+## ✨ Features
 
-- 🚀 **高性能**: 使用Rust开发，零开销抽象，性能提升15-100倍
-- 📊 **大文件支持**: 采用内存映射和稀疏索引，支持GB级文件  
-- ⚡ **快速跳转**: O(log n)复杂度的页面跳转，毫秒级响应
-- 💾 **内存优化**: 使用内存映射和零拷贝技术，内存占用降低2-4倍
-- 🔄 **智能缓存**: LRU页面缓存，提升重复访问性能
-- 🎯 **跨平台**: 原生支持Windows/Linux/macOS
+- 🚀 **High Performance**: Built with Rust, 15-100x performance improvement
+- 📊 **Large File Support**: Memory mapping and sparse indexing, supports GB-level files
+- ⚡ **Fast Navigation**: O(log n) complexity page jumping, millisecond-level response
+- 💾 **Memory Efficient**: Memory mapping and zero-copy technology, 2-4x lower memory usage
+- 🔄 **Smart Caching**: LRU page cache with index persistence
+- 🎨 **Modern GUI**: Beautiful Tauri + React interface (optional)
+- 🎯 **Cross-Platform**: Native support for Windows/Linux/macOS
 
-## 🛠️ 安装
+## 🚀 Quick Start
 
 ### Windows
 
-1. 安装 Rust: https://rustup.rs/
-2. 克隆项目:
-```bash
-git clone https://github.com/ziyefbk/csv_tool.git
-cd csv_tool
-```
-
-3. 编译运行:
+**Build CLI tool:**
 ```bash
 cargo build --release
-.\target\release\csv-tool.exe
+.\target\release\csv-tool.exe data.csv
 ```
 
-或直接运行:
+**Build GUI app:**
 ```bash
-cargo run --release
+# Setup environment
+.\setup_gui_fixed.bat
+
+# Build EXE
+.\build.bat
+
+# Run generated EXE
+.\tauri\target\release\CSV Tool.exe
 ```
 
 ### Linux / macOS
 
 ```bash
-# 安装 Rust
+# Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 克隆并运行
+# Clone and run
 git clone https://github.com/ziyefbk/csv_tool.git
 cd csv_tool
-cargo run --release
+cargo build --release
+./target/release/csv-tool data.csv
 ```
 
-## 📖 使用方法
+## 📖 Usage
 
-### 命令行模式
+### CLI Mode
 
-#### 基本用法
+#### Basic Commands
 
 ```bash
-# 显示第1页（默认）
-cargo run --release -- data.csv
+# View first page (default)
+csv-tool data.csv
 
-# 显示第2页
-cargo run --release -- data.csv -p 2
+# View specific page
+csv-tool data.csv -p 2
 
-# 指定每页显示行数
-cargo run --release -- data.csv -p 2 -s 50
+# Custom page size
+csv-tool data.csv -p 2 -s 50
 
-# 使用分号作为分隔符
-cargo run --release -- data.csv -d ';'
+# Custom delimiter
+csv-tool data.csv -d ';'
 ```
 
-#### 子命令
+#### File Information
 
 ```bash
-# 显示文件详细信息
-cargo run --release -- data.csv info
-
-# 搜索数据
-cargo run --release -- data.csv search "关键词"
-cargo run --release -- data.csv search "关键词" -i          # 大小写不敏感
-cargo run --release -- data.csv search "关键词" -r          # 正则表达式
-cargo run --release -- data.csv search "关键词" -c "列名"   # 在指定列搜索
-
-# 导出数据
-cargo run --release -- data.csv export output.json --format json
-cargo run --release -- data.csv export output.csv --format csv
-
-# 排序数据
-cargo run --release -- data.csv sort -c "列名" --order asc
-cargo run --release -- data.csv sort -c "列名" --order desc
-
-# 编辑CSV文件
-cargo run --release -- data.csv edit "set 1 2 新值"        # 设置第1行第2列的值
-cargo run --release -- data.csv edit "delete-row 5"        # 删除第5行
-cargo run --release -- data.csv edit "append-row 值1,值2,值3"  # 添加行
-
-# 创建新CSV文件
-cargo run --release -- create new.csv --headers "列1,列2,列3"
+# Show file details
+csv-tool data.csv info
 ```
 
-#### Windows PowerShell 中文路径问题
+#### Search
 
-如果文件路径包含中文，建议使用短路径或引号：
+```bash
+# Basic search
+csv-tool data.csv search "keyword"
 
-```powershell
-# 使用引号包裹路径
-cargo run --release -- "E:\路径\文件.csv" -p 2
+# Case-insensitive search
+csv-tool data.csv search "keyword" -i
 
-# 或者先切换到文件所在目录
-cd "E:\路径"
-cargo run --release -- 文件.csv -p 2
+# Regex search
+csv-tool data.csv search "pattern" -r
+
+# Search in specific column
+csv-tool data.csv search "keyword" -c "Column Name"
+
+# Count matches only
+csv-tool data.csv search "keyword" --count
+
+# Limit results
+csv-tool data.csv search "keyword" -m 100
 ```
 
-程序会显示：
-- 📄 文件信息（路径、大小、行数、列数）
-- ⏱️ 打开耗时（索引构建时间）
-- ⚡ 读取耗时（页面读取时间）
-- 📊 数据表格（分页显示）
+#### Sort
 
-### 作为库使用
+```bash
+# Sort by column (ascending)
+csv-tool data.csv sort -c "Column Name" --order asc
 
-```rust
-use csv_tool::csv::CsvReader;
-use csv_tool::error::Result;
+# Sort by column (descending)
+csv-tool data.csv sort -c "Column Name" --order desc
 
-fn main() -> Result<()> {
-    // 打开CSV文件
-    let mut reader = CsvReader::open(
-        "data.csv",
-        true,   // 有表头
-        b',',   // 逗号分隔符
-        1000,   // 索引粒度（每1000行）
-    )?;
-    
-    // 获取文件信息
-    let info = reader.info();
-    println!("总行数: {}", info.total_rows);
-    
-    // 读取第0页（每页20行）
-    let rows = reader.read_page(0, 20)?;
-    for row in rows {
-        println!("{:?}", row.fields);
-    }
-    
-    Ok(())
-}
+# Auto-detect data type
+csv-tool data.csv sort -c "Column Name" --data-type auto
+
+# Case-insensitive sort
+csv-tool data.csv sort -c "Column Name" --ignore-case
 ```
 
-## 🏗️ 项目结构
+#### Export
+
+```bash
+# Export to JSON
+csv-tool data.csv export output.json --format json
+
+# Export to CSV
+csv-tool data.csv export output.csv --format csv
+
+# Export to TSV
+csv-tool data.csv export output.tsv --format tsv
+
+# Export specific columns
+csv-tool data.csv export output.json --format json -c "Col1,Col2,Col3"
+
+# Export row range
+csv-tool data.csv export output.json --format json --from 10 --to 20
+```
+
+#### Edit
+
+```bash
+# Edit cell value
+csv-tool data.csv edit "set 1 2 NewValue"
+
+# Delete row
+csv-tool data.csv edit "delete-row 5"
+
+# Append row
+csv-tool data.csv edit "append-row value1,value2,value3"
+
+# Delete column
+csv-tool data.csv edit "delete-col ColumnName"
+
+# Rename column
+csv-tool data.csv edit "rename-col OldName NewName"
+```
+
+#### Create New File
+
+```bash
+# Create CSV file with headers
+csv-tool create new.csv --headers "Column1,Column2,Column3"
+
+# Create with initial rows
+csv-tool create new.csv --headers "Col1,Col2,Col3" --rows "val1,val2,val3"
+```
+
+### GUI Mode
+
+1. **Build the application** (see Quick Start above)
+2. **Run the EXE**: Double-click `CSV Tool.exe`
+3. **Open CSV file**: Click "Open CSV File" button
+4. **Browse data**: Use pagination controls to navigate
+5. **Search**: Use the search box to filter data in real-time
+
+## 📊 Performance
+
+### Benchmark Results
+
+| File Size | Standard Open | Fast Open | Improvement |
+|-----------|--------------|-----------|-------------|
+| 10k rows (~1MB) | 3.6 ms | 2.6 ms | 1.4x |
+| 100k rows (~10MB) | 23 ms | 19 ms | 1.2x |
+| **500k rows (~50MB)** | **96 ms** | **2.5 ms** | **38x** 🚀 |
+
+### Page Reading Performance
+
+| Operation | Time |
+|-----------|------|
+| Read first page | 37 µs |
+| Read middle page | 40 µs |
+| Read last page | 63 µs |
+
+### Memory Usage
+
+| File Size | Before | After | Reduction |
+|-----------|--------|-------|-----------|
+| 1 GB | 1 GB+ | <50 MB | **20x** |
+
+## 🏗️ Project Structure
 
 ```
 csv-tool/
-├── src/
-│   ├── main.rs              # CLI应用入口
-│   ├── lib.rs               # 库入口
-│   ├── error.rs             # 错误类型定义
-│   └── csv/                 # CSV处理核心模块
-│       ├── mod.rs          # 模块导出
-│       ├── reader.rs        # 高性能读取器（内存映射）
-│       ├── index.rs         # 稀疏行索引
-│       └── cache.rs         # LRU页面缓存
-├── tests/                   # 集成测试
-├── docs/                    # 技术文档
-│   ├── TECHNICAL_ASSESSMENT.md    # 技术评估
-│   ├── IMPLEMENTATION_PLAN.md     # 实施计划
-│   ├── IMPLEMENTATION_SUMMARY.md  # 实施总结
-│   └── QUICK_REFERENCE.md         # 快速参考
-└── Cargo.toml              # 项目配置
+├── src/                        # Rust core library
+│   ├── main.rs                 # CLI entry point
+│   ├── lib.rs                  # Library entry
+│   ├── error.rs                # Error types
+│   └── csv/                    # Core modules
+│       ├── reader.rs           # High-performance reader (mmap + index)
+│       ├── index.rs            # Sparse row index + sampling
+│       ├── cache.rs            # LRU page cache
+│       ├── search.rs           # Search functionality
+│       ├── sort.rs             # Sort functionality
+│       ├── export.rs           # Export functionality
+│       ├── writer.rs           # Edit/write functionality
+│       └── utils.rs            # Utility functions
+│
+├── frontend/                   # React frontend
+│   └── src/
+│       ├── App.tsx
+│       ├── components/         # UI components
+│       ├── api/                # Tauri API calls
+│       └── stores/             # State management
+│
+├── tauri/                      # Tauri backend
+│   └── src/main.rs             # GUI API
+│
+├── tests/                      # Integration tests (40+ tests)
+├── benches/                    # Performance benchmarks
+└── docs/                       # Documentation
 ```
 
-## 🔧 技术栈
+## 🔧 Technology Stack
 
-### 核心依赖
-- **Rust 2021**: 核心语言
-- **memmap2**: 内存映射（操作系统级文件映射）
-- **csv**: CSV解析库
-- **lru**: LRU缓存实现
-- **thiserror**: 错误类型定义
-- **anyhow**: 应用级错误处理
-- **serde**: 序列化支持（用于索引持久化）
+### Core Dependencies
 
-### 核心技术
-- **内存映射（mmap）**: 操作系统级文件映射，按需加载，不占用物理内存
-- **稀疏行索引**: 每N行记录一次字节偏移，O(log n)复杂度快速定位
-- **零拷贝解析**: 字段直接引用mmap数据，减少内存分配
-- **LRU页面缓存**: 智能缓存最近访问的页面，提升重复访问性能
+```toml
+memmap2 = "0.9"      # Memory mapping (core optimization)
+memchr = "2.7"       # SIMD-accelerated string search
+rayon = "1.8"        # Parallel processing
+csv = "1.3"          # CSV parsing
+lru = "0.12"         # LRU cache
+bincode = "1.3"      # Index serialization
+regex = "1.10"       # Regular expressions
+clap = "4.5"         # CLI argument parsing
+thiserror = "1.0"    # Error types
+```
 
-## 💡 性能特点
+### Key Technologies
 
-### 性能对比
+- **Memory Mapping (mmap)**: OS-level file mapping, on-demand loading
+- **Sparse Indexing**: Record byte offset every N rows, O(log n) fast location
+- **Zero-Copy Parsing**: Fields directly reference mmap data, reducing allocations
+- **Index Persistence**: Auto-save index to `.csv.idx`, 20-40x faster on reopen
+- **Fast Open Mode**: Row sampling estimation, progressive indexing, async build support
 
-| 操作 | 优化前 | 优化后 | 提升倍数 |
-|------|--------|--------|----------|
-| 打开1GB文件 | 30-60秒 | <2秒 | **15-30x** |
-| 跳转第1000页 | 5-10秒 | <100ms | **50-100x** |
-| 内存占用 | 100-200MB | <50MB | **2-4x** |
+## 💡 Key Optimizations
 
-### 核心优势
-- ✅ **内存映射**: 不占用物理内存，支持GB级文件
-- ✅ **稀疏索引**: 快速定位，毫秒级页面跳转
-- ✅ **零拷贝**: 减少内存分配，提升解析性能
-- ✅ **智能缓存**: LRU策略，提升重复访问速度
-- ✅ **索引持久化**: 自动保存索引，再次打开速度提升20-40倍 ✨
-- ✅ **跨平台**: 原生支持Windows/Linux/macOS
+### Fast Open Mode (`open_fast`)
 
-## 📋 开发路线图
+For large files, the tool uses smart sampling and progressive indexing:
 
-### 已完成 ✅
-- [x] 基础文件读取
-- [x] 内存映射实现
-- [x] 稀疏行索引系统
-- [x] 分页预览（高性能）
-- [x] 元数据显示
-- [x] LRU页面缓存
-- [x] 零拷贝CSV解析
-- [x] 错误处理系统
-- [x] 集成测试
-- [x] **索引持久化**（.csv.idx文件）✨ 新增
+1. **Row Sampling**: Sample first 1MB to estimate total rows
+2. **Progressive Index**: Only index first 2000 rows initially
+3. **Async Build**: Background thread continues building full index
+4. **Result**: <100ms response time for files of any size!
 
-### 计划中 🚧
-- [ ] 异步索引构建（后台构建）
-- [ ] CLI界面优化（clap）
-- [ ] 性能基准测试（criterion）
+### Index Persistence
 
-### 未来功能 💡
-- [ ] GUI界面（egui）
-- [ ] 单元格编辑
-- [ ] 搜索过滤
-- [ ] 数据排序
-- [ ] 导出功能
-- [ ] 并行处理（rayon）
+Indexes are automatically saved to `.csv.idx` files:
+- Validated against file size and modification time
+- Loaded automatically on next open
+- 20-40x faster than rebuilding
 
-## 🧪 测试
+## 🧪 Testing
 
-运行测试：
 ```bash
+# Run all tests
 cargo test
-```
 
-运行集成测试：
-```bash
+# Run integration tests
 cargo test --test integration_test
+
+# Run benchmarks
+cargo bench
 ```
 
-## 📚 文档
+## 📚 Documentation
 
-详细的技术文档位于 `docs/` 目录：
-- [技术评估](./docs/TECHNICAL_ASSESSMENT.md) - 详细的技术分析和问题诊断
-- [实施计划](./docs/IMPLEMENTATION_PLAN.md) - 具体的实施步骤和代码示例
-- [实施总结](./docs/IMPLEMENTATION_SUMMARY.md) - 已完成工作的总结
-- [快速参考](./docs/QUICK_REFERENCE.md) - 核心优化要点和关键代码模式
+Detailed documentation in `docs/`:
+- [USAGE.md](./docs/USAGE.md) - Complete usage guide
+- [PERFORMANCE.md](./docs/PERFORMANCE.md) - Performance analysis
+- [TECHNICAL_ASSESSMENT.md](./docs/TECHNICAL_ASSESSMENT.md) - Technical details
+- [QUICK_REFERENCE.md](./docs/QUICK_REFERENCE.md) - Quick reference
 
-## 🤝 贡献
+## 🎯 Features Status
 
-欢迎提交 Issue 和 Pull Request！
+### ✅ Completed
 
-## 📄 许可证
+- [x] High-performance CSV reading (mmap + sparse index)
+- [x] Fast open mode (sampling + progressive indexing)
+- [x] Index persistence (.csv.idx files)
+- [x] LRU page cache
+- [x] Zero-copy parsing
+- [x] Modern GUI (Tauri + React)
+- [x] Search (text, regex, column filter)
+- [x] Sort (multiple data types)
+- [x] Export (JSON, CSV, TSV)
+- [x] Edit (cells, rows, columns)
+- [x] Create new files
+- [x] Comprehensive tests (40+ tests)
+- [x] Performance benchmarks
+
+### 🚧 Future Plans
+
+- [ ] Virtual scrolling for very large tables
+- [ ] Multi-file tab support
+- [ ] Column statistics
+- [ ] Data visualization
+- [ ] Plugin system
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
 
 MIT License
 
