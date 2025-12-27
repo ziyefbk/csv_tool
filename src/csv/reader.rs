@@ -394,25 +394,45 @@ impl CsvReader {
     }
 
     /// 快速构建索引（采样估算 + 部分索引）
+    /// 
+    /// 使用更激进的优化策略：
+    /// - 智能采样大小（根据文件大小调整）
+    /// - 最小初始索引（只索引前 500 行）
     fn build_fast_index(
         mmap: &Mmap,
         has_headers: bool,
         granularity: usize,
     ) -> Result<(RowIndex, usize, Option<RowEstimate>)> {
-        // 采样估算行数（采样前 1MB）
-        const SAMPLE_SIZE: usize = 1024 * 1024;
-        let estimate = RowIndex::estimate_rows(mmap, has_headers, SAMPLE_SIZE);
+        let file_size = mmap.len();
+        
+        // 智能采样策略：根据文件大小调整采样大小
+        // - 小文件 (<10MB): 256KB
+        // - 中文件 (10-100MB): 128KB  
+        // - 大文件 (>100MB): 64KB
+        const SMALL_FILE_THRESHOLD: usize = 10 * 1024 * 1024;
+        const MEDIUM_FILE_THRESHOLD: usize = 100 * 1024 * 1024;
+        
+        let sample_size = if file_size < SMALL_FILE_THRESHOLD {
+            256 * 1024  // 256KB for small files
+        } else if file_size < MEDIUM_FILE_THRESHOLD {
+            128 * 1024  // 128KB for medium files
+        } else {
+            64 * 1024   // 64KB for large files (>100MB)
+        };
+        
+        let estimate = RowIndex::estimate_rows(mmap, has_headers, sample_size);
         
         // 对于小文件（<1MB），直接构建完整索引（通常 <100ms）
-        const SMALL_FILE_THRESHOLD: usize = 1 * 1024 * 1024;
-        if mmap.len() <= SMALL_FILE_THRESHOLD || estimate.is_exact {
+        const TINY_FILE_THRESHOLD: usize = 1 * 1024 * 1024;
+        if file_size <= TINY_FILE_THRESHOLD || estimate.is_exact {
             let index = RowIndex::build(mmap, has_headers, granularity)?;
             let total_rows = index.total_rows();
             return Ok((index, total_rows, None));
         }
 
-        // 对于大文件，只构建前 2000 行的索引（确保首页立即可用）
-        const INITIAL_ROWS: usize = 2000;
+        // 对于大文件，只构建前 500 行的索引（确保首页立即可用）
+        // 从 2000 行降低到 500 行，进一步提升打开速度
+        const INITIAL_ROWS: usize = 500;
         let (index, _complete) = RowIndex::build_partial(mmap, has_headers, granularity, Some(INITIAL_ROWS))?;
         
         // 使用估算的行数（但至少是已索引的行数）
