@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/api/dialog";
 import { invoke } from "@tauri-apps/api/tauri";
 import { FileText, Loader2, Search, X } from "lucide-react";
@@ -34,9 +34,28 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(null);
   const [filters, setFilters] = useState<Map<number, string>>(new Map());
+  const searchTimeoutRef = useRef<number | null>(null);
+
+  // 搜索防抖：延迟 300ms 执行搜索
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    searchTimeoutRef.current = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current !== null) {
+        window.clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery]);
 
   const handleOpenFile = async () => {
     try {
@@ -55,6 +74,8 @@ function App() {
         setError(null);
         setFilePath(selected);
         setCurrentPage(0);
+        setSearchQuery("");
+        setDebouncedSearchQuery("");
         setSortColumn(null);
         setSortDirection(null);
         setFilters(new Map());
@@ -125,12 +146,17 @@ function App() {
     setFilters(newFilters);
   };
 
-  // 应用全局搜索筛选（保留此功能，在 CSVTable 内部还会进行排序和列筛选）
-  const filteredRows = pageData?.rows.filter((row) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return row.fields.some((field) => field.toLowerCase().includes(query));
-  }) || [];
+  // 应用全局搜索筛选（使用 useMemo 缓存结果，避免不必要的重新计算）
+  // 使用防抖后的搜索查询，减少频繁计算
+  const filteredRows = useMemo(() => {
+    if (!pageData?.rows) return [];
+    if (!debouncedSearchQuery) return pageData.rows;
+    
+    const query = debouncedSearchQuery.toLowerCase();
+    return pageData.rows.filter((row) =>
+      row.fields.some((field) => field.toLowerCase().includes(query))
+    );
+  }, [pageData?.rows, debouncedSearchQuery]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
@@ -216,8 +242,8 @@ function App() {
               ) : (
                 <CSVTable
                   headers={fileInfo.headers}
-                  rows={searchQuery ? filteredRows : (pageData?.rows || [])}
-                  searchQuery={searchQuery}
+                  rows={debouncedSearchQuery ? filteredRows : (pageData?.rows || [])}
+                  searchQuery={debouncedSearchQuery}
                   sortColumn={sortColumn}
                   sortDirection={sortDirection}
                   onSort={handleSort}

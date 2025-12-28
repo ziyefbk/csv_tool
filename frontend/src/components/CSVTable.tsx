@@ -112,15 +112,31 @@ export default function CSVTable({
     }
   };
 
-  // 获取列的唯一下拉值（使用原始 rows，而不是筛选后的）
-  const getColumnUniqueValues = (columnIndex: number): string[] => {
-    const values = new Set<string>();
-    rows.forEach((row) => {
-      if (columnIndex < row.fields.length && row.fields[columnIndex] !== undefined && row.fields[columnIndex] !== null && row.fields[columnIndex] !== "") {
-        values.add(row.fields[columnIndex]);
-      }
+  // 缓存所有列的唯一值（使用 useMemo 避免重复计算）
+  const uniqueValuesMap = useMemo(() => {
+    const map = new Map<number, string[]>();
+    
+    headers.forEach((_, colIdx) => {
+      const values = new Set<string>();
+      rows.forEach((row) => {
+        if (
+          colIdx < row.fields.length &&
+          row.fields[colIdx] !== undefined &&
+          row.fields[colIdx] !== null &&
+          row.fields[colIdx] !== ""
+        ) {
+          values.add(row.fields[colIdx]);
+        }
+      });
+      map.set(colIdx, Array.from(values).sort((a, b) => compareValues(a, b)));
     });
-    return Array.from(values).sort((a, b) => compareValues(a, b));
+    
+    return map;
+  }, [rows, headers]);
+
+  // 获取列的唯一下拉值（从缓存中获取）
+  const getColumnUniqueValues = (columnIndex: number): string[] => {
+    return uniqueValuesMap.get(columnIndex) || [];
   };
 
   // 应用筛选后的行
