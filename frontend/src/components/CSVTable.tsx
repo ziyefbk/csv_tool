@@ -1,10 +1,16 @@
 import { FixedSizeList } from "react-window";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ArrowUp, ArrowDown, Filter, X } from "lucide-react";
 
 interface CSVTableProps {
   headers: string[];
   rows: { fields: string[] }[];
   searchQuery?: string;
+  sortColumn?: number | null;
+  sortDirection?: "asc" | "desc" | null;
+  onSort?: (columnIndex: number | null, direction: "asc" | "desc" | null) => void;
+  filters?: Map<number, string>;
+  onFilter?: (columnIndex: number, value: string | null) => void;
 }
 
 const ROW_HEIGHT = 40; // 每行高度（像素）
@@ -40,7 +46,38 @@ function estimateTextWidth(text: string): number {
   return width;
 }
 
-export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTableProps) {
+// 智能比较函数（支持数字、日期、文本）
+function compareValues(a: string, b: string): number {
+  // 尝试数字比较
+  const numA = parseFloat(a);
+  const numB = parseFloat(b);
+  if (!isNaN(numA) && !isNaN(numB)) {
+    return numA - numB;
+  }
+  
+  // 尝试日期比较
+  const dateA = new Date(a);
+  const dateB = new Date(b);
+  if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+    return dateA.getTime() - dateB.getTime();
+  }
+  
+  // 文本比较
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+export default function CSVTable({
+  headers,
+  rows,
+  searchQuery = "",
+  sortColumn = null,
+  sortDirection = null,
+  onSort,
+  filters = new Map(),
+  onFilter,
+}: CSVTableProps) {
+  const [openFilterMenu, setOpenFilterMenu] = useState<number | null>(null);
+
   const highlightText = (text: string, query: string) => {
     if (!query) return text;
 
@@ -56,24 +93,88 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
     );
   };
 
+  // 处理排序点击
+  const handleSortClick = (columnIndex: number) => {
+    if (!onSort) return;
+    
+    if (sortColumn === columnIndex) {
+      // 切换排序方向：asc -> desc -> null
+      if (sortDirection === "asc") {
+        onSort(columnIndex, "desc");
+      } else if (sortDirection === "desc") {
+        onSort(null, null);
+      } else {
+        onSort(columnIndex, "asc");
+      }
+    } else {
+      // 新列，默认升序
+      onSort(columnIndex, "asc");
+    }
+  };
+
+  // 获取列的唯一下拉值（使用原始 rows，而不是筛选后的）
+  const getColumnUniqueValues = (columnIndex: number): string[] => {
+    const values = new Set<string>();
+    rows.forEach((row) => {
+      if (columnIndex < row.fields.length && row.fields[columnIndex] !== undefined && row.fields[columnIndex] !== null && row.fields[columnIndex] !== "") {
+        values.add(row.fields[columnIndex]);
+      }
+    });
+    return Array.from(values).sort((a, b) => compareValues(a, b));
+  };
+
+  // 应用筛选后的行
+  const filteredRows = useMemo(() => {
+    let result = [...rows];
+
+    // 应用列筛选
+    filters.forEach((filterValue, columnIndex) => {
+      if (filterValue) {
+        result = result.filter((row) => {
+          if (columnIndex >= row.fields.length) return false;
+          return row.fields[columnIndex] === filterValue;
+        });
+      }
+    });
+
+    return result;
+  }, [rows, filters]);
+
+  // 应用排序后的行
+  const sortedRows = useMemo(() => {
+    if (sortColumn === null || sortDirection === null) {
+      return filteredRows;
+    }
+
+    const sorted = [...filteredRows];
+    sorted.sort((a, b) => {
+      const aValue = a.fields[sortColumn] || "";
+      const bValue = b.fields[sortColumn] || "";
+      const comparison = compareValues(aValue, bValue);
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+
+    return sorted;
+  }, [filteredRows, sortColumn, sortDirection]);
+
   // 计算动态列宽
   const finalColumnWidths = useMemo(() => {
-    if (rows.length === 0 || headers.length === 0) {
+    if (sortedRows.length === 0 || headers.length === 0) {
       return headers.map(() => DEFAULT_COLUMN_WIDTH);
     }
 
     const widths = headers.map((_, colIdx) => {
-      // 1. 测量表头宽度
+      // 1. 测量表头宽度（考虑排序和筛选图标）
       const headerText = headers[colIdx] || `列 ${colIdx + 1}`;
       let maxWidth = estimateTextWidth(headerText);
+      maxWidth += 60; // 为排序和筛选图标预留空间
       
       // 2. 采样数据行来测量内容宽度
-      // 采样策略：均匀采样最多100行
-      const sampleSize = Math.min(100, rows.length);
-      const step = rows.length > sampleSize ? Math.max(1, Math.floor(rows.length / sampleSize)) : 1;
+      const sampleSize = Math.min(100, sortedRows.length);
+      const step = sortedRows.length > sampleSize ? Math.max(1, Math.floor(sortedRows.length / sampleSize)) : 1;
       
-      for (let i = 0; i < rows.length; i += step) {
-        const row = rows[i];
+      for (let i = 0; i < sortedRows.length; i += step) {
+        const row = sortedRows[i];
         if (row && colIdx < row.fields.length) {
           const field = row.fields[colIdx];
           if (field) {
@@ -93,19 +194,18 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
     });
 
     return widths;
-  }, [headers, rows]);
+  }, [headers, sortedRows]);
 
   // 计算容器高度（使用视口高度的 70%，留空间给其他 UI）
   const containerHeight = useMemo(() => {
     const viewportHeight = window.innerHeight;
-    // 减去顶部工具栏、文件信息、分页控件的预估高度
     const reservedHeight = 300;
     return Math.max(400, viewportHeight - reservedHeight);
   }, []);
 
   // 计算表格总宽度（行号列 + 数据列）
   const tableWidth = useMemo(() => {
-    const rowNumberWidth = 80; // 行号列宽度
+    const rowNumberWidth = 80;
     const dataColumnsWidth = finalColumnWidths.reduce((sum, width) => sum + width, 0);
     return rowNumberWidth + dataColumnsWidth;
   }, [finalColumnWidths]);
@@ -120,7 +220,7 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
 
   // 虚拟滚动行渲染器
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const row = rows[index];
+    const row = sortedRows[index];
     if (!row) return null;
 
     return (
@@ -182,14 +282,97 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
           {/* 数据列头 */}
           {headers.map((header, idx) => {
             const width = finalColumnWidths[idx] || DEFAULT_COLUMN_WIDTH;
+            const isSorted = sortColumn === idx;
+            const hasFilter = filters.has(idx) && filters.get(idx);
+            const uniqueValues = getColumnUniqueValues(idx);
+            const isFilterMenuOpen = openFilterMenu === idx;
+
             return (
               <div
                 key={idx}
-                className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-r border-gray-700 last:border-r-0 flex-shrink-0 overflow-hidden"
+                className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-r border-gray-700 last:border-r-0 flex-shrink-0 relative group"
                 style={{ width }}
-                title={header}
               >
-                <div className="truncate">{header || `列 ${idx + 1}`}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className="truncate flex-1 cursor-pointer hover:text-gray-200"
+                    onClick={() => handleSortClick(idx)}
+                    title={header}
+                  >
+                    {header || `列 ${idx + 1}`}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {/* 排序图标 */}
+                    {isSorted && (
+                      <div
+                        className="cursor-pointer text-primary-500"
+                        onClick={() => handleSortClick(idx)}
+                      >
+                        {sortDirection === "asc" ? (
+                          <ArrowUp className="w-4 h-4" />
+                        ) : (
+                          <ArrowDown className="w-4 h-4" />
+                        )}
+                      </div>
+                    )}
+                    {/* 筛选按钮 */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setOpenFilterMenu(isFilterMenuOpen ? null : idx)}
+                        className={`p-1 rounded hover:bg-gray-600 transition-colors ${
+                          hasFilter ? "text-primary-500" : "text-gray-500"
+                        }`}
+                        title="筛选"
+                      >
+                        <Filter className="w-4 h-4" />
+                      </button>
+                      {/* 筛选下拉菜单 */}
+                      {isFilterMenuOpen && onFilter && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setOpenFilterMenu(null)}
+                          />
+                          <div className="absolute top-full left-0 mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto min-w-[200px]">
+                            <div className="p-2">
+                              <button
+                                onClick={() => {
+                                  onFilter(idx, null);
+                                  setOpenFilterMenu(null);
+                                }}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-600 rounded flex items-center justify-between"
+                              >
+                                <span className={!hasFilter ? "text-primary-400" : ""}>
+                                  (全部)
+                                </span>
+                                {!hasFilter && <X className="w-4 h-4" />}
+                              </button>
+                              <div className="border-t border-gray-600 my-1" />
+                              {uniqueValues.map((value, valueIdx) => {
+                                const isSelected = filters.get(idx) === value;
+                                return (
+                                  <button
+                                    key={valueIdx}
+                                    onClick={() => {
+                                      onFilter(idx, value);
+                                      setOpenFilterMenu(null);
+                                    }}
+                                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-600 rounded truncate flex items-center justify-between ${
+                                      isSelected ? "text-primary-400" : ""
+                                    }`}
+                                  >
+                                    <span className="truncate">{value}</span>
+                                    {isSelected && <X className="w-4 h-4" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             );
           })}
@@ -200,7 +383,7 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
       <div className="overflow-x-auto">
         <FixedSizeList
           height={containerHeight}
-          itemCount={rows.length}
+          itemCount={sortedRows.length}
           itemSize={ROW_HEIGHT}
           width="100%"
         >
@@ -210,8 +393,13 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
 
       {/* 显示总行数 */}
       <div className="px-4 py-2 bg-gray-800 border-t border-gray-700 text-sm text-gray-400">
-        共 {rows.length.toLocaleString()} 行
-        {rows.length > 1000 && (
+        共 {sortedRows.length.toLocaleString()} 行
+        {rows.length !== sortedRows.length && (
+          <span className="ml-2 text-gray-500">
+            (已筛选: {rows.length.toLocaleString()} → {sortedRows.length.toLocaleString()})
+          </span>
+        )}
+        {sortedRows.length > 1000 && (
           <span className="ml-2 text-gray-500">
             (使用虚拟滚动优化性能)
           </span>

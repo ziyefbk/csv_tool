@@ -34,6 +34,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortColumn, setSortColumn] = useState<number | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(null);
+  const [filters, setFilters] = useState<Map<number, string>>(new Map());
 
   const handleOpenFile = async () => {
     try {
@@ -52,6 +55,9 @@ function App() {
         setError(null);
         setFilePath(selected);
         setCurrentPage(0);
+        setSortColumn(null);
+        setSortDirection(null);
+        setFilters(new Map());
 
         try {
           const info = await invoke<CsvFileInfo>("open_csv_file", {
@@ -104,6 +110,22 @@ function App() {
     }
   };
 
+  const handleSort = (columnIndex: number | null, direction: "asc" | "desc" | null) => {
+    setSortColumn(columnIndex);
+    setSortDirection(direction);
+  };
+
+  const handleFilter = (columnIndex: number, value: string | null) => {
+    const newFilters = new Map(filters);
+    if (value) {
+      newFilters.set(columnIndex, value);
+    } else {
+      newFilters.delete(columnIndex);
+    }
+    setFilters(newFilters);
+  };
+
+  // 应用全局搜索筛选（保留此功能，在 CSVTable 内部还会进行排序和列筛选）
   const filteredRows = pageData?.rows.filter((row) => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
@@ -196,6 +218,11 @@ function App() {
                   headers={fileInfo.headers}
                   rows={searchQuery ? filteredRows : (pageData?.rows || [])}
                   searchQuery={searchQuery}
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filters={filters}
+                  onFilter={handleFilter}
                 />
               )}
             </div>
