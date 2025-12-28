@@ -1,6 +1,8 @@
 import { FixedSizeList } from "react-window";
 import { useMemo, useState } from "react";
-import { ArrowUp, ArrowDown, Filter, X } from "lucide-react";
+import { ArrowUp, ArrowDown, Filter, X, BarChart3 } from "lucide-react";
+import { calculateColumnStats, ColumnStats } from "../utils/columnStats";
+import ColumnStatsPanel from "./ColumnStats";
 
 interface CSVTableProps {
   headers: string[];
@@ -77,6 +79,8 @@ export default function CSVTable({
   onFilter,
 }: CSVTableProps) {
   const [openFilterMenu, setOpenFilterMenu] = useState<number | null>(null);
+  const [statsColumn, setStatsColumn] = useState<number | null>(null);
+  const [columnStats, setColumnStats] = useState<ColumnStats | null>(null);
 
   const highlightText = (text: string, query: string) => {
     if (!query) return text;
@@ -287,8 +291,31 @@ export default function CSVTable({
   };
 
   return (
-    <div className="rounded-lg border border-gray-700 bg-gray-800 overflow-hidden">
-      {/* 固定表头 */}
+    <div className="relative">
+      {/* 统计信息面板 */}
+      {statsColumn !== null && columnStats && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => {
+              setStatsColumn(null);
+              setColumnStats(null);
+            }}
+          />
+          <div className="fixed top-24 right-4 z-50 max-h-[calc(100vh-8rem)] overflow-y-auto">
+            <ColumnStatsPanel
+              stats={columnStats}
+              onClose={() => {
+                setStatsColumn(null);
+                setColumnStats(null);
+              }}
+            />
+          </div>
+        </>
+      )}
+      
+      <div className="rounded-lg border border-gray-700 bg-gray-800 overflow-hidden">
+        {/* 固定表头 */}
       <div className="border-b border-gray-700 bg-gray-750 sticky top-0 z-20 overflow-x-auto">
         <div className="flex" style={{ width: tableWidth }}>
           {/* 行号列头 - 固定 */}
@@ -331,6 +358,25 @@ export default function CSVTable({
                         )}
                       </div>
                     )}
+                    {/* 统计信息按钮 */}
+                    <button
+                      onClick={() => {
+                        if (statsColumn === idx) {
+                          setStatsColumn(null);
+                          setColumnStats(null);
+                        } else {
+                          const stats = calculateColumnStats(idx, header || `列 ${idx + 1}`, rows);
+                          setColumnStats(stats);
+                          setStatsColumn(idx);
+                        }
+                      }}
+                      className={`p-1 rounded hover:bg-gray-600 transition-colors ${
+                        statsColumn === idx ? "text-primary-500" : "text-gray-500"
+                      }`}
+                      title="统计信息"
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                    </button>
                     {/* 筛选按钮 */}
                     <div className="relative">
                       <button
@@ -421,6 +467,7 @@ export default function CSVTable({
           </span>
         )}
       </div>
+    </div>
     </div>
   );
 }
