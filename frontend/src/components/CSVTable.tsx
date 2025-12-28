@@ -80,7 +80,21 @@ export default function CSVTable({
 }: CSVTableProps) {
   const [openFilterMenu, setOpenFilterMenu] = useState<number | null>(null);
   const [statsColumn, setStatsColumn] = useState<number | null>(null);
-  const [columnStats, setColumnStats] = useState<ColumnStats | null>(null);
+
+  // 缓存所有列的统计信息（使用 useMemo 避免重复计算）
+  const columnStatsCache = useMemo(() => {
+    const cache = new Map<number, ColumnStats>();
+    headers.forEach((header, idx) => {
+      cache.set(idx, calculateColumnStats(idx, header || `列 ${idx + 1}`, rows));
+    });
+    return cache;
+  }, [headers, rows]);
+
+  // 从缓存中获取当前选中列的统计信息
+  const columnStats = useMemo(() => {
+    if (statsColumn === null) return null;
+    return columnStatsCache.get(statsColumn) || null;
+  }, [statsColumn, columnStatsCache]);
 
   const highlightText = (text: string, query: string) => {
     if (!query) return text;
@@ -299,7 +313,6 @@ export default function CSVTable({
             className="fixed inset-0 z-40"
             onClick={() => {
               setStatsColumn(null);
-              setColumnStats(null);
             }}
           />
           <div className="fixed top-24 right-4 z-50 max-h-[calc(100vh-8rem)] overflow-y-auto">
@@ -307,7 +320,6 @@ export default function CSVTable({
               stats={columnStats}
               onClose={() => {
                 setStatsColumn(null);
-                setColumnStats(null);
               }}
             />
           </div>
@@ -363,10 +375,7 @@ export default function CSVTable({
                       onClick={() => {
                         if (statsColumn === idx) {
                           setStatsColumn(null);
-                          setColumnStats(null);
                         } else {
-                          const stats = calculateColumnStats(idx, header || `列 ${idx + 1}`, rows);
-                          setColumnStats(stats);
                           setStatsColumn(idx);
                         }
                       }}
