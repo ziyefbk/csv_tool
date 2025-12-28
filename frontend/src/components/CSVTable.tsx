@@ -8,7 +8,37 @@ interface CSVTableProps {
 }
 
 const ROW_HEIGHT = 40; // 每行高度（像素）
-const COLUMN_WIDTH = 150; // 默认列宽（像素）
+const MIN_COLUMN_WIDTH = 100; // 最小列宽
+const MAX_COLUMN_WIDTH = 500; // 最大列宽
+const DEFAULT_COLUMN_WIDTH = 150; // 默认列宽
+const PADDING = 32; // 左右 padding (px-4 = 16px * 2)
+const CHAR_WIDTH = 7; // 英文字符平均宽度（像素）
+const CJK_CHAR_WIDTH = 14; // 中文字符宽度（像素）
+
+// 估算文本宽度（基于字符数和字符类型）
+function estimateTextWidth(text: string): number {
+  if (!text) return MIN_COLUMN_WIDTH;
+  
+  let width = 0;
+  for (const char of text) {
+    // 检查是否为中日韩字符（包括中文、日文、韩文）
+    const code = char.charCodeAt(0);
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) || // CJK统一汉字
+      (code >= 0x3400 && code <= 0x4dbf) || // CJK扩展A
+      (code >= 0x20000 && code <= 0x2a6df) || // CJK扩展B
+      (code >= 0x3040 && code <= 0x309f) || // 日文平假名
+      (code >= 0x30a0 && code <= 0x30ff) || // 日文片假名
+      (code >= 0xac00 && code <= 0xd7af)    // 韩文
+    ) {
+      width += CJK_CHAR_WIDTH;
+    } else {
+      width += CHAR_WIDTH;
+    }
+  }
+  
+  return width;
+}
 
 export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTableProps) {
   const highlightText = (text: string, query: string) => {
@@ -26,6 +56,45 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
     );
   };
 
+  // 计算动态列宽
+  const finalColumnWidths = useMemo(() => {
+    if (rows.length === 0 || headers.length === 0) {
+      return headers.map(() => DEFAULT_COLUMN_WIDTH);
+    }
+
+    const widths = headers.map((_, colIdx) => {
+      // 1. 测量表头宽度
+      const headerText = headers[colIdx] || `列 ${colIdx + 1}`;
+      let maxWidth = estimateTextWidth(headerText);
+      
+      // 2. 采样数据行来测量内容宽度
+      // 采样策略：均匀采样最多100行
+      const sampleSize = Math.min(100, rows.length);
+      const step = rows.length > sampleSize ? Math.max(1, Math.floor(rows.length / sampleSize)) : 1;
+      
+      for (let i = 0; i < rows.length; i += step) {
+        const row = rows[i];
+        if (row && colIdx < row.fields.length) {
+          const field = row.fields[colIdx];
+          if (field) {
+            const fieldWidth = estimateTextWidth(field);
+            maxWidth = Math.max(maxWidth, fieldWidth);
+          }
+        }
+      }
+      
+      // 3. 添加 padding 并限制在最小/最大范围内
+      const width = Math.max(
+        MIN_COLUMN_WIDTH,
+        Math.min(MAX_COLUMN_WIDTH, maxWidth + PADDING)
+      );
+      
+      return width;
+    });
+
+    return widths;
+  }, [headers, rows]);
+
   // 计算容器高度（使用视口高度的 70%，留空间给其他 UI）
   const containerHeight = useMemo(() => {
     const viewportHeight = window.innerHeight;
@@ -37,9 +106,9 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
   // 计算表格总宽度（行号列 + 数据列）
   const tableWidth = useMemo(() => {
     const rowNumberWidth = 80; // 行号列宽度
-    const dataColumnsWidth = headers.length * COLUMN_WIDTH;
+    const dataColumnsWidth = finalColumnWidths.reduce((sum, width) => sum + width, 0);
     return rowNumberWidth + dataColumnsWidth;
-  }, [headers.length]);
+  }, [finalColumnWidths]);
 
   if (rows.length === 0) {
     return (
@@ -65,30 +134,36 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
             {index + 1}
           </div>
           {/* 数据列 */}
-          {row.fields.map((field, colIdx) => (
-            <div
-              key={colIdx}
-              className="px-4 py-2 text-sm text-gray-300 border-r border-gray-700 last:border-r-0 flex-shrink-0 overflow-hidden"
-              style={{ width: COLUMN_WIDTH }}
-              title={field}
-            >
-              <div className="truncate">
-                {highlightText(field, searchQuery)}
+          {row.fields.map((field, colIdx) => {
+            const width = finalColumnWidths[colIdx] || DEFAULT_COLUMN_WIDTH;
+            return (
+              <div
+                key={colIdx}
+                className="px-4 py-2 text-sm text-gray-300 border-r border-gray-700 last:border-r-0 flex-shrink-0 overflow-hidden"
+                style={{ width }}
+                title={field}
+              >
+                <div className="truncate">
+                  {highlightText(field, searchQuery)}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {/* 填充缺失的列 */}
           {row.fields.length < headers.length &&
             Array.from({ length: headers.length - row.fields.length }).map(
-              (_, colIdx) => (
-                <div
-                  key={colIdx + row.fields.length}
-                  className="px-4 py-2 text-sm text-gray-500 border-r border-gray-700 last:border-r-0 flex-shrink-0 flex items-center justify-center"
-                  style={{ width: COLUMN_WIDTH }}
-                >
-                  -
-                </div>
-              )
+              (_, colIdx) => {
+                const width = finalColumnWidths[row.fields.length + colIdx] || DEFAULT_COLUMN_WIDTH;
+                return (
+                  <div
+                    key={colIdx + row.fields.length}
+                    className="px-4 py-2 text-sm text-gray-500 border-r border-gray-700 last:border-r-0 flex-shrink-0 flex items-center justify-center"
+                    style={{ width }}
+                  >
+                    -
+                  </div>
+                );
+              }
             )}
         </div>
       </div>
@@ -105,16 +180,19 @@ export default function CSVTable({ headers, rows, searchQuery = "" }: CSVTablePr
             #
           </div>
           {/* 数据列头 */}
-          {headers.map((header, idx) => (
-            <div
-              key={idx}
-              className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-r border-gray-700 last:border-r-0 flex-shrink-0 overflow-hidden"
-              style={{ width: COLUMN_WIDTH }}
-              title={header}
-            >
-              <div className="truncate">{header || `列 ${idx + 1}`}</div>
-            </div>
-          ))}
+          {headers.map((header, idx) => {
+            const width = finalColumnWidths[idx] || DEFAULT_COLUMN_WIDTH;
+            return (
+              <div
+                key={idx}
+                className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-r border-gray-700 last:border-r-0 flex-shrink-0 overflow-hidden"
+                style={{ width }}
+                title={header}
+              >
+                <div className="truncate">{header || `列 ${idx + 1}`}</div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
