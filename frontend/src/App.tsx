@@ -43,6 +43,7 @@ function App() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const searchTimeoutRef = useRef<number | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 搜索防抖：延迟 300ms 执行搜索
   useEffect(() => {
@@ -60,6 +61,36 @@ function App() {
       }
     };
   }, [searchQuery]);
+
+  // 键盘快捷键处理
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+F / Cmd+F: 聚焦搜索框
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+      
+      // Ctrl+S / Cmd+S: 导出为 CSV
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        if (fileInfo && pageData) {
+          handleExport("csv");
+        }
+      }
+      
+      // Esc: 关闭菜单和面板
+      if (e.key === "Escape") {
+        setShowExportMenu(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [fileInfo, pageData]);
 
   const handleOpenFile = async () => {
     try {
@@ -289,8 +320,9 @@ function App() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="搜索..."
+                placeholder="搜索... (Ctrl+F)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 pr-8 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 w-64"

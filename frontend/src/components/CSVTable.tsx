@@ -1,5 +1,5 @@
 import { FixedSizeList } from "react-window";
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { ArrowUp, ArrowDown, Filter, X, BarChart3, Search } from "lucide-react";
 import { calculateColumnStats, ColumnStats } from "../utils/columnStats";
 import ColumnStatsPanel from "./ColumnStats";
@@ -82,6 +82,26 @@ export default function CSVTable({
   const [statsColumn, setStatsColumn] = useState<number | null>(null);
   const [filterSearchQuery, setFilterSearchQuery] = useState<string>("");
   const filterSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // 键盘快捷键处理（Esc 关闭菜单）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (openFilterMenu !== null) {
+          setOpenFilterMenu(null);
+          setFilterSearchQuery("");
+        }
+        if (statsColumn !== null) {
+          setStatsColumn(null);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openFilterMenu, statsColumn]);
 
   // 缓存所有列的统计信息（使用 useMemo 避免重复计算）
   const columnStatsCache = useMemo(() => {
@@ -259,7 +279,7 @@ export default function CSVTable({
     const row = sortedRows[index];
     if (!row) return null;
 
-    return (
+  return (
       <div style={style}>
         <div
           className="flex hover:bg-gray-750/50 transition-colors border-b border-gray-700"
@@ -274,25 +294,25 @@ export default function CSVTable({
             const width = finalColumnWidths[colIdx] || DEFAULT_COLUMN_WIDTH;
             return (
               <div
-                key={colIdx}
+                  key={colIdx}
                 className="px-4 py-2 text-sm text-gray-300 border-r border-gray-700 last:border-r-0 flex-shrink-0 overflow-hidden"
                 style={{ width }}
-                title={field}
-              >
+                  title={field}
+                >
                 <div className="truncate">
                   {highlightText(field, searchQuery)}
                 </div>
               </div>
             );
           })}
-          {/* 填充缺失的列 */}
-          {row.fields.length < headers.length &&
-            Array.from({ length: headers.length - row.fields.length }).map(
+              {/* 填充缺失的列 */}
+              {row.fields.length < headers.length &&
+                Array.from({ length: headers.length - row.fields.length }).map(
               (_, colIdx) => {
                 const width = finalColumnWidths[row.fields.length + colIdx] || DEFAULT_COLUMN_WIDTH;
                 return (
                   <div
-                    key={colIdx + row.fields.length}
+                      key={colIdx + row.fields.length}
                     className="px-4 py-2 text-sm text-gray-500 border-r border-gray-700 last:border-r-0 flex-shrink-0 flex items-center justify-center"
                     style={{ width }}
                   >
