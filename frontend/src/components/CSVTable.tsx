@@ -1,6 +1,6 @@
 import { FixedSizeList } from "react-window";
-import { useMemo, useState } from "react";
-import { ArrowUp, ArrowDown, Filter, X, BarChart3 } from "lucide-react";
+import { useMemo, useState, useRef } from "react";
+import { ArrowUp, ArrowDown, Filter, X, BarChart3, Search } from "lucide-react";
 import { calculateColumnStats, ColumnStats } from "../utils/columnStats";
 import ColumnStatsPanel from "./ColumnStats";
 
@@ -80,6 +80,8 @@ export default function CSVTable({
 }: CSVTableProps) {
   const [openFilterMenu, setOpenFilterMenu] = useState<number | null>(null);
   const [statsColumn, setStatsColumn] = useState<number | null>(null);
+  const [filterSearchQuery, setFilterSearchQuery] = useState<string>("");
+  const filterSearchInputRef = useRef<HTMLInputElement>(null);
 
   // 缓存所有列的统计信息（使用 useMemo 避免重复计算）
   const columnStatsCache = useMemo(() => {
@@ -389,7 +391,15 @@ export default function CSVTable({
                     {/* 筛选按钮 */}
                     <div className="relative">
                       <button
-                        onClick={() => setOpenFilterMenu(isFilterMenuOpen ? null : idx)}
+                        onClick={() => {
+                          if (isFilterMenuOpen) {
+                            setOpenFilterMenu(null);
+                            setFilterSearchQuery("");
+                          } else {
+                            setOpenFilterMenu(idx);
+                            setFilterSearchQuery("");
+                          }
+                        }}
                         className={`p-1 rounded hover:bg-gray-600 transition-colors ${
                           hasFilter ? "text-primary-500" : "text-gray-500"
                         }`}
@@ -402,42 +412,109 @@ export default function CSVTable({
                         <>
                           <div
                             className="fixed inset-0 z-40"
-                            onClick={() => setOpenFilterMenu(null)}
+                            onClick={() => {
+                              setOpenFilterMenu(null);
+                              setFilterSearchQuery("");
+                            }}
                           />
-                          <div className="absolute top-full left-0 mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto min-w-[200px]">
-                            <div className="p-2">
-                              <button
-                                onClick={() => {
-                                  onFilter(idx, null);
-                                  setOpenFilterMenu(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-600 rounded flex items-center justify-between"
-                              >
-                                <span className={!hasFilter ? "text-primary-400" : ""}>
-                                  (全部)
-                                </span>
-                                {!hasFilter && <X className="w-4 h-4" />}
-                              </button>
-                              <div className="border-t border-gray-600 my-1" />
-                              {uniqueValues.map((value, valueIdx) => {
-                                const isSelected = filters.get(idx) === value;
-                                return (
+                          <div className="absolute top-full left-0 mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-lg z-50 max-h-96 overflow-hidden flex flex-col min-w-[250px]">
+                            {/* 搜索框 */}
+                            <div className="p-2 border-b border-gray-600">
+                              <div className="relative">
+                                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input
+                                  ref={filterSearchInputRef}
+                                  type="text"
+                                  placeholder="搜索筛选值..."
+                                  value={filterSearchQuery}
+                                  onChange={(e) => setFilterSearchQuery(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-full pl-8 pr-8 py-2 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                  autoFocus
+                                />
+                                {filterSearchQuery && (
                                   <button
-                                    key={valueIdx}
-                                    onClick={() => {
-                                      onFilter(idx, value);
-                                      setOpenFilterMenu(null);
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setFilterSearchQuery("");
+                                      filterSearchInputRef.current?.focus();
                                     }}
-                                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-600 rounded truncate flex items-center justify-between ${
-                                      isSelected ? "text-primary-400" : ""
-                                    }`}
+                                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
                                   >
-                                    <span className="truncate">{value}</span>
-                                    {isSelected && <X className="w-4 h-4" />}
+                                    <X className="w-4 h-4" />
                                   </button>
-                                );
-                              })}
+                                )}
+                              </div>
                             </div>
+                            
+                            {/* 选项列表 */}
+                            <div className="overflow-y-auto max-h-64">
+                              <div className="p-2">
+                                <button
+                                  onClick={() => {
+                                    onFilter(idx, null);
+                                    setOpenFilterMenu(null);
+                                    setFilterSearchQuery("");
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-600 rounded flex items-center justify-between"
+                                >
+                                  <span className={!hasFilter ? "text-primary-400" : ""}>
+                                    (全部)
+                                  </span>
+                                  {!hasFilter && <X className="w-4 h-4" />}
+                                </button>
+                                <div className="border-t border-gray-600 my-1" />
+                                
+                                {/* 过滤后的唯一值列表 */}
+                                {(() => {
+                                  const filteredValues = filterSearchQuery
+                                    ? uniqueValues.filter((v) =>
+                                        v.toLowerCase().includes(filterSearchQuery.toLowerCase())
+                                      )
+                                    : uniqueValues;
+                                  
+                                  if (filteredValues.length === 0) {
+                                    return (
+                                      <div className="px-3 py-4 text-sm text-gray-400 text-center">
+                                        未找到匹配项
+                                      </div>
+                                    );
+                                  }
+                                  
+                                  return filteredValues.map((value, valueIdx) => {
+                                    const isSelected = filters.get(idx) === value;
+                                    return (
+                                      <button
+                                        key={valueIdx}
+                                        onClick={() => {
+                                          onFilter(idx, value);
+                                          setOpenFilterMenu(null);
+                                          setFilterSearchQuery("");
+                                        }}
+                                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-600 rounded truncate flex items-center justify-between ${
+                                          isSelected ? "text-primary-400" : ""
+                                        }`}
+                                      >
+                                        <span className="truncate">{value}</span>
+                                        {isSelected && <X className="w-4 h-4" />}
+                                      </button>
+                                    );
+                                  });
+                                })()}
+                              </div>
+                            </div>
+                            
+                            {/* 底部信息 */}
+                            {filterSearchQuery && (
+                              <div className="px-3 py-2 border-t border-gray-600 text-xs text-gray-400 bg-gray-800">
+                                {(() => {
+                                  const filteredCount = uniqueValues.filter((v) =>
+                                    v.toLowerCase().includes(filterSearchQuery.toLowerCase())
+                                  ).length;
+                                  return `显示 ${filteredCount} / ${uniqueValues.length} 项`;
+                                })()}
+                              </div>
+                            )}
                           </div>
                         </>
                       )}
